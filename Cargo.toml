@@ -1,0 +1,7 @@
+[package]
+name = "omelette"
+version = "0.1.0"
+authors = ["rookie1024 <rookie1286@gmail.com>"]
+
+[dependencies]
+ncurses = "5.94.0"
