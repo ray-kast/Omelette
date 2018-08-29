@@ -1,8 +1,10 @@
 extern crate ncurses as nc;
 
 use std::cmp;
+use tui::{core::*, element::*, internal::*};
 
 pub struct WordBox {
+  desired_size: Size,
   win: nc::WINDOW,
   cur: usize,
   max: usize,
@@ -12,6 +14,7 @@ pub struct WordBox {
 impl WordBox {
   pub fn new(win: nc::WINDOW, max: usize) -> WordBox {
     return WordBox {
+      desired_size: Size { w: 0, h: 0 },
       win: win,
       cur: 0,
       max: max,
@@ -22,20 +25,6 @@ impl WordBox {
   pub fn render_cur(&self) {
     nc::wmove(self.win, 0, (self.cur * 2) as i32);
     nc::wrefresh(self.win);
-  }
-
-  pub fn render(&self) {
-    for (i, ch) in self.buf.char_indices() {
-      nc::mvwaddch(self.win, 0, (i * 2) as i32, ch as u32);
-    }
-
-    for i in (self.buf.len()..self.max) {
-      nc::mvwaddch(self.win, 0, (i * 2) as i32, '_' as u32);
-    }
-
-    nc::wrefresh(self.win);
-
-    self.render_cur();
   }
 
   pub fn del_left(&mut self) {
@@ -96,5 +85,40 @@ impl WordBox {
   pub fn end(&mut self) {
     let pos = self.buf.len();
     self.move_to(pos);
+  }
+}
+
+impl ElementCore for WordBox {
+  fn set_desired_size(&mut self, val: Size) {
+    self.desired_size = val;
+  }
+
+  fn desired_size(&self) -> Size {
+    return self.desired_size;
+  }
+
+  fn measure_impl(&self, _: Size) -> Size {
+    return Size {
+      w: self.max as i32 * 2 + 1,
+      h: 1,
+    };
+  }
+
+  fn arrange_impl(&mut self, space: Rect) {
+    nc::mvwin(self.win, space.pos.y, space.pos.x);
+  }
+
+  fn render_impl(&self) {
+    for (i, ch) in self.buf.char_indices() {
+      nc::mvwaddch(self.win, 0, (i * 2) as i32, ch as u32);
+    }
+
+    for i in self.buf.len()..self.max {
+      nc::mvwaddch(self.win, 0, (i * 2) as i32, '_' as u32);
+    }
+
+    nc::wrefresh(self.win);
+
+    self.render_cur();
   }
 }

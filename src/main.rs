@@ -1,8 +1,8 @@
 extern crate ncurses as nc;
 
-mod word_box;
+mod tui;
 
-use word_box::WordBox;
+use tui::{core::*, element::*, word_box::*};
 
 fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
   nc::wmove(win, y, 0);
@@ -22,6 +22,20 @@ fn main() {
   let mut word_box = WordBox::new(word_box_win, 7);
 
   nc::wrefresh(win);
+
+  let mut termsize = Size { w: 0, h: 0 };
+  nc::getmaxyx(win, &mut termsize.h, &mut termsize.w);
+
+  word_box.measure(termsize);
+
+  {
+    let space = Rect {
+      pos: Point { x: 1, y: 1 },
+      size: word_box.desired_size(),
+    };
+
+    word_box.arrange(space);
+  }
 
   word_box.render();
 
