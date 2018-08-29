@@ -12,10 +12,10 @@ pub struct WordBox {
 }
 
 impl WordBox {
-  pub fn new(win: nc::WINDOW, max: usize) -> WordBox {
+  pub fn new(max: usize) -> WordBox {
     return WordBox {
       desired_size: Size { w: 0, h: 0 },
-      win: win,
+      win: nc::newwin(1, 1, 0, 0),
       cur: 0,
       max: max,
       buf: String::new(),
@@ -105,6 +105,8 @@ impl ElementCore for WordBox {
   }
 
   fn arrange_impl(&mut self, space: Rect) {
+    // TODO: these shouldn't be in arrange
+    nc::wresize(self.win, 1, self.max as i32 * 2 - 1);
     nc::mvwin(self.win, space.pos.y, space.pos.x);
   }
 

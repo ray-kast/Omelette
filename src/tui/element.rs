@@ -1,3 +1,4 @@
+use std::{cell::RefCell, rc::Rc};
 use tui::{core::*, internal::*};
 
 pub trait Element {
@@ -28,3 +29,5 @@ impl<T: ElementCore> Element for T {
     self.render_impl();
   }
 }
+
+pub type ElemRef = Rc<RefCell<dyn Element>>;
