@@ -1,8 +1,15 @@
 extern crate ncurses as nc;
 
-mod tui;
+extern crate serde;
+extern crate serde_json;
 
-use std::{cell::RefCell, rc::Rc};
+#[macro_use]
+extern crate serde_derive;
+
+mod tui;
+mod word_list;
+
+use std::{cell::RefCell, fs::File, rc::Rc};
 use tui::{center_test::*, core::*, element::*, word_box::*};
 
 fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
@@ -31,6 +38,10 @@ fn rearrange_root(win: nc::WINDOW, el: &mut dyn Element) {
 }
 
 fn main() {
+  let _words = word_list::read_file(
+    &mut File::open("words.json").expect("wordlist not found"),
+  );
+
   let win = nc::initscr();
   nc::cbreak();
   nc::noecho();
@@ -48,7 +59,7 @@ fn main() {
     let ch = nc::wgetch(win);
 
     match ch {
-      0x04 => break,            // EOT
+      0x04 => break,                         // EOT
       0x17 => word_box.borrow_mut().clear(), // ETB
       0x0A => {
         // EOL

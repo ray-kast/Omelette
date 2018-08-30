@@ -2,7 +2,7 @@ use tui::{core::*, element::*, internal::*};
 
 pub struct CenterTest {
   desired_size: Size,
-  pub child: ElemRef,
+  child: ElemRef,
 }
 
 impl CenterTest {
