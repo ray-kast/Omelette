@@ -6,10 +6,10 @@ pub struct CenterTest {
 }
 
 impl CenterTest {
-  pub fn new(child: ElemRef) -> CenterTest {
-    return CenterTest {
+  pub fn new(child: ElemRef) -> Self {
+    return Self {
       desired_size: Size { w: 0, h: 0 },
-      child: child,
+      child,
     };
   }
 }

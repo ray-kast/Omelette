@@ -9,32 +9,14 @@ extern crate serde_derive;
 mod tui;
 mod word_list;
 
-use std::{cell::RefCell, fs::File, rc::Rc};
-use tui::{center_test::*, core::*, element::*, word_box::*};
+use std::fs::File;
+use tui::{center_test::*, element as el, ui_root::*, word_box::*};
 
 fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
   nc::wmove(win, y, 0);
   nc::wclrtoeol(win);
   nc::mvwaddstr(win, y, 0, line);
   nc::wrefresh(win);
-}
-
-fn rearrange_root(win: nc::WINDOW, el: &mut dyn Element) {
-  let mut termsize = Size { w: 0, h: 0 };
-  nc::getmaxyx(win, &mut termsize.h, &mut termsize.w);
-
-  el.measure(termsize);
-
-  {
-    let space = Rect {
-      pos: Point { x: 0, y: 0 },
-      size: termsize,
-    };
-
-    el.arrange(space);
-  }
-
-  el.render();
 }
 
 fn main() {
@@ -47,13 +29,13 @@ fn main() {
   nc::noecho();
   nc::keypad(win, true);
 
-  let word_box = Rc::new(RefCell::new(WordBox::new(8)));
+  let word_box = el::wrap(WordBox::new(8));
 
-  let mut center_test = CenterTest::new(Rc::clone(&word_box) as ElemRef);
+  let center_test = el::wrap(CenterTest::new(el::make_ref(&word_box)));
 
-  nc::wrefresh(win);
+  let ui_root = UiRoot::new(win, el::make_ref(&center_test));
 
-  rearrange_root(win, &mut center_test);
+  ui_root.resize();
 
   loop {
     let ch = nc::wgetch(win);
@@ -74,11 +56,7 @@ fn main() {
       nc::KEY_BACKSPACE => word_box.borrow_mut().del_left(),
       nc::KEY_DC => word_box.borrow_mut().del_right(),
       nc::KEY_END => word_box.borrow_mut().end(),
-      nc::KEY_RESIZE => {
-        nc::wclear(win);
-        nc::wrefresh(win);
-        rearrange_root(win, &mut center_test);
-      }
+      nc::KEY_RESIZE => ui_root.resize(),
       _ => {
         if ch < nc::KEY_MIN {
           let ch = ch as u8 as char;

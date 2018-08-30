@@ -31,3 +31,15 @@ impl<T: ElementCore> Element for T {
 }
 
 pub type ElemRef = Rc<RefCell<dyn Element>>;
+
+pub fn wrap<T>(el: T) -> Rc<RefCell<T>>
+where
+  T: Element,
+{
+  return Rc::new(RefCell::new(el));
+}
+
+// TODO: just adding 'static doesn't feel like the right thing
+pub fn make_ref<T>(el: &Rc<RefCell<T>>) -> ElemRef where T: Element + 'static {
+  return Rc::clone(el) as ElemRef;
+}

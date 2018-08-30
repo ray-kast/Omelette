@@ -12,12 +12,12 @@ pub struct WordBox {
 }
 
 impl WordBox {
-  pub fn new(max: usize) -> WordBox {
-    return WordBox {
+  pub fn new(max: usize) -> Self {
+    return Self {
       desired_size: Size { w: 0, h: 0 },
       win: nc::newwin(1, 1, 0, 0),
       cur: 0,
-      max: max,
+      max,
       buf: String::new(),
     };
   }
