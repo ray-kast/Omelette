@@ -31,10 +31,12 @@ fn main() {
 
   let word_box = el::wrap(WordBox::new(8));
 
-  let match_box = el::wrap(MatchBox::new(word_list::WordlistForm {
+  let test_form = word_list::WordlistForm{
     full: "abc".to_string(),
     blanked: "___".to_string(),
-  }));
+  };
+
+  let match_box = el::wrap(MatchBox::new(&test_form));
 
   let center_test = el::wrap(TestView::new(
     el::add_ref(&word_box),

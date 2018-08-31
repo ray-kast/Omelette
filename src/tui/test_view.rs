@@ -1,13 +1,13 @@
 use tui::prelude_internal::*;
 
-pub struct TestView {
+pub struct TestView<'a> {
   desired_size: Size,
-  word_box: ElemRef,
-  match_box: ElemRef,
+  word_box: ElemRef<'a>,
+  match_box: ElemRef<'a>,
 }
 
-impl TestView {
-  pub fn new(word_box: ElemRef, match_box: ElemRef) -> Self {
+impl<'a> TestView<'a> {
+  pub fn new(word_box: ElemRef<'a>, match_box: ElemRef<'a>) -> Self {
     Self {
       desired_size: Size { w: 0, h: 0 },
       word_box,
@@ -16,7 +16,7 @@ impl TestView {
   }
 }
 
-impl ElementCore for TestView {
+impl<'a> ElementCore for TestView<'a> {
   fn set_desired_size(&mut self, val: Size) {
     self.desired_size = val;
   }

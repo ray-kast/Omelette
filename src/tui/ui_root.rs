@@ -2,13 +2,13 @@ extern crate ncurses as nc;
 
 use tui::prelude_internal::*;
 
-pub struct UiRoot {
+pub struct UiRoot<'a> {
   win: nc::WINDOW,
-  child: ElemRef,
+  child: ElemRef<'a>,
 }
 
-impl UiRoot {
-  pub fn new(win: nc::WINDOW, child: ElemRef) -> Self {
+impl<'a> UiRoot<'a> {
+  pub fn new(win: nc::WINDOW, child: ElemRef<'a>) -> Self {
     Self { win, child }
   }
 

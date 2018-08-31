@@ -3,15 +3,15 @@ extern crate ncurses as nc;
 use tui::prelude_internal::*;
 use word_list::WordlistForm;
 
-pub struct MatchBox {
+pub struct MatchBox<'a> {
   desired_size: Size,
   win: nc::WINDOW,
-  form: WordlistForm,
+  form: &'a WordlistForm,
   revealed: bool,
 }
 
-impl MatchBox {
-  pub fn new(form: WordlistForm) -> Self {
+impl<'a> MatchBox<'a> {
+  pub fn new(form: &'a WordlistForm) -> Self {
     Self {
       desired_size: Size { w: 0, h: 0 },
       win: nc::newwin(1, 1, 0, 0),
@@ -42,7 +42,7 @@ impl MatchBox {
   }
 }
 
-impl ElementCore for MatchBox {
+impl<'a> ElementCore for MatchBox<'a> {
   fn set_desired_size(&mut self, val: Size) {
     self.desired_size = val;
   }

@@ -30,7 +30,7 @@ impl<T: ElementCore> Element for T {
   }
 }
 
-pub type ElemRef = Rc<RefCell<dyn Element>>;
+pub type ElemRef<'a> = Rc<RefCell<dyn Element + 'a>>;
 
 pub fn wrap<T>(el: T) -> Rc<RefCell<T>>
 where
@@ -39,10 +39,9 @@ where
   Rc::new(RefCell::new(el))
 }
 
-// TODO: just adding 'static doesn't feel like the right thing
-pub fn add_ref<T>(el: &Rc<RefCell<T>>) -> ElemRef
+pub fn add_ref<'a, T>(el: &Rc<RefCell<T>>) -> ElemRef
 where
-  T: Element + 'static,
+  T: Element + 'a,
 {
   Rc::clone(el) as ElemRef
 }
