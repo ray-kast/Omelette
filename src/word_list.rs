@@ -11,8 +11,8 @@ pub struct WordList {
 }
 
 pub struct WordlistForm {
-  full: String,
-  blanked: String,
+  pub full: String,
+  pub blanked: String,
 }
 
 struct WordlistFormVisitor();

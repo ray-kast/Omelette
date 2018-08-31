@@ -40,7 +40,7 @@ where
 }
 
 // TODO: just adding 'static doesn't feel like the right thing
-pub fn make_ref<T>(el: &Rc<RefCell<T>>) -> ElemRef
+pub fn add_ref<T>(el: &Rc<RefCell<T>>) -> ElemRef
 where
   T: Element + 'static,
 {

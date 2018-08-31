@@ -31,9 +31,17 @@ fn main() {
 
   let word_box = el::wrap(WordBox::new(8));
 
-  let center_test = el::wrap(TestView::new(el::make_ref(&word_box)));
+  let match_box = el::wrap(MatchBox::new(word_list::WordlistForm {
+    full: "abc".to_string(),
+    blanked: "___".to_string(),
+  }));
 
-  let ui_root = UiRoot::new(win, el::make_ref(&center_test));
+  let center_test = el::wrap(TestView::new(
+    el::add_ref(&word_box),
+    el::add_ref(&match_box),
+  ));
+
+  let ui_root = UiRoot::new(win, el::add_ref(&center_test));
 
   ui_root.resize();
 
@@ -43,8 +51,13 @@ fn main() {
       0x17 => word_box.borrow_mut().clear(), // ETB
       0x0A => {
         // EOL
+        let mut match_box = match_box.borrow_mut();
         let mut word_box = word_box.borrow_mut();
-        dump_line(win, 5, &word_box.buf);
+
+        if word_box.buf == "abc" {
+          match_box.set_revealed(true);
+        }
+
         word_box.clear();
       }
       0x7F => word_box.borrow_mut().del_left(), // DEL

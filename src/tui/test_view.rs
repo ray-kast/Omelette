@@ -2,14 +2,16 @@ use tui::prelude_internal::*;
 
 pub struct TestView {
   desired_size: Size,
-  child: ElemRef,
+  word_box: ElemRef,
+  match_box: ElemRef,
 }
 
 impl TestView {
-  pub fn new(child: ElemRef) -> Self {
+  pub fn new(word_box: ElemRef, match_box: ElemRef) -> Self {
     Self {
       desired_size: Size { w: 0, h: 0 },
-      child,
+      word_box,
+      match_box,
     }
   }
 }
@@ -24,29 +26,55 @@ impl ElementCore for TestView {
   }
 
   fn measure_impl(&self, space: Size) -> Size {
-    let mut child = self.child.borrow_mut();
-    child.measure(space);
+    {
+      let mut match_box = self.match_box.borrow_mut();
+      match_box.measure(space);
+    }
+
+    {
+      let mut word_box = self.word_box.borrow_mut();
+      word_box.measure(space);
+    }
+
     space
   }
 
   fn arrange_impl(&mut self, space: Rect) {
-    let mut child = self.child.borrow_mut();
+    {
+      let mut match_box = self.match_box.borrow_mut();
 
-    let child_size = child.desired_size();
+      let size = match_box.desired_size();
 
-    let child_space = Rect {
-      pos: Point {
-        x: (space.size.w - child_size.w) / 2,
-        y: (space.size.h - child_size.h) / 2,
-      },
-      size: child.desired_size(),
-    };
+      match_box.arrange(Rect {
+        pos: Point { x: 1, y: 1 },
+        size,
+      });
+    }
 
-    child.arrange(child_space);
+    {
+      let mut word_box = self.word_box.borrow_mut();
+
+      let size = word_box.desired_size();
+
+      word_box.arrange(Rect {
+        pos: Point {
+          x: 1,
+          y: self.desired_size.h - 2,
+        },
+        size,
+      });
+    }
   }
 
   fn render_impl(&self) {
-    let child = self.child.borrow_mut();
-    child.render();
+    {
+      let match_box = self.match_box.borrow_mut();
+      match_box.render();
+    }
+
+    {
+      let word_box = self.word_box.borrow_mut();
+      word_box.render();
+    }
   }
 }
