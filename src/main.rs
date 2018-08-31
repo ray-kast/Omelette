@@ -10,7 +10,7 @@ mod tui;
 mod word_list;
 
 use std::fs::File;
-use tui::{center_test::*, element as el, ui_root::*, word_box::*};
+use tui::{controls::*, element as el};
 
 fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
   nc::wmove(win, y, 0);
@@ -31,16 +31,14 @@ fn main() {
 
   let word_box = el::wrap(WordBox::new(8));
 
-  let center_test = el::wrap(CenterTest::new(el::make_ref(&word_box)));
+  let center_test = el::wrap(TestView::new(el::make_ref(&word_box)));
 
   let ui_root = UiRoot::new(win, el::make_ref(&center_test));
 
   ui_root.resize();
 
   loop {
-    let ch = nc::wgetch(win);
-
-    match ch {
+    match nc::wgetch(win) {
       0x04 => break,                         // EOT
       0x17 => word_box.borrow_mut().clear(), // ETB
       0x0A => {
@@ -57,20 +55,22 @@ fn main() {
       nc::KEY_DC => word_box.borrow_mut().del_right(),
       nc::KEY_END => word_box.borrow_mut().end(),
       nc::KEY_RESIZE => ui_root.resize(),
-      _ => {
+      ch => {
+        let mut word_box = word_box.borrow_mut();
+
         if ch < nc::KEY_MIN {
           let ch = ch as u8 as char;
 
           if !ch.is_control() {
             let s = ch.to_lowercase().to_string();
-            word_box.borrow_mut().put(&s);
+            word_box.put(&s);
           } else {
             dump_line(win, 3, &ch.escape_unicode().to_string());
-            word_box.borrow_mut().render_cur();
+            word_box.render_cur();
           }
         } else {
           dump_line(win, 4, &ch.to_string());
-          word_box.borrow_mut().render_cur();
+          word_box.render_cur();
         }
       }
     }

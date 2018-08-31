@@ -1,32 +1,32 @@
-use tui::{core::*, element::*, internal::*};
+use tui::prelude_internal::*;
 
-pub struct CenterTest {
+pub struct TestView {
   desired_size: Size,
   child: ElemRef,
 }
 
-impl CenterTest {
+impl TestView {
   pub fn new(child: ElemRef) -> Self {
-    return Self {
+    Self {
       desired_size: Size { w: 0, h: 0 },
       child,
-    };
+    }
   }
 }
 
-impl ElementCore for CenterTest {
+impl ElementCore for TestView {
   fn set_desired_size(&mut self, val: Size) {
     self.desired_size = val;
   }
 
   fn desired_size(&self) -> Size {
-    return self.desired_size;
+    self.desired_size
   }
 
   fn measure_impl(&self, space: Size) -> Size {
     let mut child = self.child.borrow_mut();
     child.measure(space);
-    return space;
+    space
   }
 
   fn arrange_impl(&mut self, space: Rect) {

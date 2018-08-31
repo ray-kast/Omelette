@@ -1,6 +1,6 @@
 extern crate ncurses as nc;
 
-use tui::{core::*, element::*};
+use tui::prelude_internal::*;
 
 pub struct UiRoot {
   win: nc::WINDOW,
@@ -9,7 +9,7 @@ pub struct UiRoot {
 
 impl UiRoot {
   pub fn new(win: nc::WINDOW, child: ElemRef) -> Self {
-    return Self { win, child };
+    Self { win, child }
   }
 
   pub fn run(&mut self) {

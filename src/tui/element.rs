@@ -1,5 +1,5 @@
 use std::{cell::RefCell, rc::Rc};
-use tui::{core::*, internal::*};
+use tui::prelude_internal::*;
 
 pub trait Element {
   fn desired_size(&self) -> Size;
@@ -13,7 +13,7 @@ pub trait Element {
 
 impl<T: ElementCore> Element for T {
   fn desired_size(&self) -> Size {
-    return ElementCore::desired_size(self);
+    ElementCore::desired_size(self)
   }
 
   fn measure(&mut self, space: Size) {
@@ -36,10 +36,13 @@ pub fn wrap<T>(el: T) -> Rc<RefCell<T>>
 where
   T: Element,
 {
-  return Rc::new(RefCell::new(el));
+  Rc::new(RefCell::new(el))
 }
 
 // TODO: just adding 'static doesn't feel like the right thing
-pub fn make_ref<T>(el: &Rc<RefCell<T>>) -> ElemRef where T: Element + 'static {
-  return Rc::clone(el) as ElemRef;
+pub fn make_ref<T>(el: &Rc<RefCell<T>>) -> ElemRef
+where
+  T: Element + 'static,
+{
+  Rc::clone(el) as ElemRef
 }

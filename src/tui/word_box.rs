@@ -1,7 +1,7 @@
 extern crate ncurses as nc;
 
 use std::cmp;
-use tui::{core::*, element::*, internal::*};
+use tui::prelude_internal::*;
 
 pub struct WordBox {
   desired_size: Size,
@@ -13,13 +13,13 @@ pub struct WordBox {
 
 impl WordBox {
   pub fn new(max: usize) -> Self {
-    return Self {
+    Self {
       desired_size: Size { w: 0, h: 0 },
       win: nc::newwin(1, 1, 0, 0),
       cur: 0,
       max,
       buf: String::new(),
-    };
+    }
   }
 
   pub fn render_cur(&self) {
@@ -49,7 +49,7 @@ impl WordBox {
   }
 
   pub fn put(&mut self, s: &str) -> bool {
-    return if s.len() + self.buf.len() <= self.max {
+    if s.len() + self.buf.len() <= self.max {
       self.buf.insert_str(self.cur, s);
       self.cur = self.cur + s.len();
       self.render();
@@ -57,7 +57,7 @@ impl WordBox {
       true
     } else {
       false
-    };
+    }
   }
 
   pub fn move_to(&mut self, to: usize) {
@@ -94,14 +94,14 @@ impl ElementCore for WordBox {
   }
 
   fn desired_size(&self) -> Size {
-    return self.desired_size;
+    self.desired_size
   }
 
   fn measure_impl(&self, _: Size) -> Size {
-    return Size {
+    Size {
       w: self.max as i32 * 2 + 1,
       h: 1,
-    };
+    }
   }
 
   fn arrange_impl(&mut self, space: Rect) {

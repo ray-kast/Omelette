@@ -21,7 +21,7 @@ impl<'de> de::Visitor<'de> for WordlistFormVisitor {
   type Value = WordlistForm;
 
   fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-    return write!(formatter, "a wordlist form");
+    write!(formatter, "a wordlist form")
   }
 
   fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
@@ -40,7 +40,7 @@ impl<'de> de::Visitor<'de> for WordlistFormVisitor {
       None => return Err(de::Error::invalid_length(1, &"a two-item array")),
     };
 
-    return Ok(WordlistForm { full, blanked });
+    Ok(WordlistForm { full, blanked })
   }
 }
 
@@ -49,12 +49,12 @@ impl<'de> Deserialize<'de> for WordlistForm {
   where
     D: Deserializer<'de>,
   {
-    return deserializer.deserialize_tuple(3, WordlistFormVisitor());
+    deserializer.deserialize_tuple(3, WordlistFormVisitor())
   }
 }
 
 pub fn read(data: &str) -> WordList {
-  return serde_json::from_str(data).expect("failed to parse wordlist");
+  serde_json::from_str(data).expect("failed to parse wordlist")
 }
 
 pub fn read_file(file: &mut File) -> WordList {
@@ -63,5 +63,5 @@ pub fn read_file(file: &mut File) -> WordList {
     .read_to_string(&mut data)
     .expect("failed to read wordlist");
 
-  return read(&data);
+  read(&data)
 }
