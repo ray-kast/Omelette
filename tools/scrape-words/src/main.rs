@@ -1,5 +1,4 @@
 extern crate base64;
-extern crate error_chain;
 extern crate futures;
 extern crate http;
 extern crate hyper;
@@ -10,12 +9,14 @@ extern crate tokio;
 extern crate url;
 
 #[macro_use]
+extern crate error_chain;
+#[macro_use]
 extern crate serde_derive;
 
 mod reddit;
 
 use futures::Future;
-use reddit::{AppDuration, AppId, AppInfo};
+use reddit::auth::{self, AppDuration, AppId, AppInfo, AuthToken};
 use std::{fs::File, io::BufReader};
 
 fn main() {
@@ -29,6 +30,21 @@ fn main() {
     id = serde_json::from_reader(file).expect("failed to parse apikey.json");
   }
 
+  fn retrieve_token() -> Result<AuthToken, ()> {
+    let file = File::open("etc/apitoken.json").map_err(|_| ())?; // TODO
+    let file = BufReader::new(file);
+
+    serde_json::from_reader(file).map_err(|_| ())? // TODO
+  }
+
+  let tok = match retrieve_token() {
+    Ok(tok) => Some(tok),
+    Err(_) => {
+      // TODO
+      None
+    }
+  };
+
   let app = AppInfo::new_rc(
     id,
     "http://rk1024.net/".parse().unwrap(),
@@ -37,10 +53,10 @@ fn main() {
   );
 
   tokio::run(
-    reddit::authenticate(app.clone(), &|| "uwu")
+    auth::authenticate(app.clone(), tok, &|| "uwu")
       .map(|tok| {
         println!("token: {:#?}", tok);
       })
-      .map_err(|_| println!("authentication failed.")), // TODO
+      .map_err(|e| println!("authentication failed: {}", e)),
   );
 }

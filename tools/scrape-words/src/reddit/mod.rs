@@ -1,6 +1,7 @@
-mod auth;
-mod request;
+pub mod auth;
+pub mod request;
 pub mod sort;
 
-pub use self::auth::*;
-pub use self::request::*;
+mod prelude_internal {
+  pub use super::request::*;
+}

@@ -1,18 +1,52 @@
+use super::prelude_internal::*;
 use base64;
 use futures::{
   future::{self, Future},
   stream::Stream,
   IntoFuture,
 };
-use http::{header, Uri};
+use http::{self, header, Uri};
 use hyper;
 use hyper_tls;
 use serde_json;
 use std::{
   io::{self, Write},
+  string,
   sync::Arc,
 };
 use url::form_urlencoded;
+
+error_chain! {
+  foreign_links {
+    FromUtf8(string::FromUtf8Error);
+    Http(http::Error);
+    Hyper(hyper::Error);
+    Io(io::Error);
+    Serde(serde_json::Error);
+  }
+
+  errors {
+    ApiError(msg: String) {
+      description("Reddit API error"),
+      display("Reddit API error '{}'", msg),
+    }
+
+    BadStatus(code: http::StatusCode) {
+      description("got unexpected HTTP status"),
+      display("got unexpected HTTP status {}", code),
+    }
+
+    Eof(at: String) {
+      description("stdin closed"),
+      display("stdin closed while reading {}", at),
+    }
+
+    InvalidGrant {
+      description("invalid grant"),
+      display("invalid grant (probably expired authcode)"),
+    }
+  }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct AppId {
@@ -75,7 +109,7 @@ struct AuthTokenResponse {
   refresh_token: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AuthToken {
   access_token: String,
   token_type: String,
@@ -121,7 +155,7 @@ where
 fn get_authcode<'auth_state, AuthStateFn>(
   app: RcAppInfo,
   auth_state: &AuthStateFn,
-) -> Result<(String, usize), io::Error>
+) -> Result<(String, usize)>
 where
   AuthStateFn: Fn() -> &'auth_state str,
 {
@@ -162,7 +196,7 @@ fn auth_token_body(app: RcAppInfo, code: &str) -> String {
 pub fn authenticate_with_code<'auth_state, AuthStateFn>(
   app: RcAppInfo,
   auth_state: &AuthStateFn,
-) -> impl Future<Item = AuthToken, Error = ()>
+) -> impl Future<Item = AuthToken, Error = Error>
 where
   AuthStateFn: Fn() -> &'auth_state str,
 {
@@ -175,18 +209,19 @@ where
 
   get_authcode(app, auth_state)
     .into_future()
-    .map_err(|_| ()) // TODO
-    .and_then(|(code, n)| if n == 0 {
-      future::err(()) // TODO
-    } else {
-      future::ok(code)
+    .and_then(|(code, n)| {
+      if n == 0 {
+        future::err(ErrorKind::Eof("authcode".into()).into())
+      } else {
+        future::ok(code)
+      }
     })
     .and_then(move |code| {
       let app = app_1;
 
-      println!("auth code: {}", code);
+      // println!("auth code: {}", code);
 
-      let mut builder = super::create_request();
+      let mut builder = create_request();
 
       let uri: Uri = "https://www.reddit.com/api/v1/access_token"
         .parse()
@@ -202,47 +237,55 @@ where
 
       let req_body = hyper::Body::from(auth_token_body(app.clone(), &code));
 
-      builder.body(req_body).into_future().map_err(|_| ()) // TODO
+      builder.body(req_body).into_future().map_err(|e| e.into())
     })
     .and_then(move |req| {
       let client = client_1;
 
-      client.request(req).map_err(|_| ()) // TODO
+      client.request(req).map_err(|e| e.into())
     })
     .and_then(|res| {
-      println!("response: {:#?}", res);
-
-      // TODO: check status, etc.
-
-      res.into_body().collect().map_err(|_| ()) // TODO
+      if res.status() == 200 {
+        future::ok(res)
+      } else {
+        future::err(ErrorKind::BadStatus(res.status()).into())
+      }
+    })
+    .and_then(|res| {
+      // println!("response: {:#?}", res);
+      res.into_body().collect().map_err(|e| e.into())
     })
     .and_then(|vec| {
       // TODO: this seems mildly problematic
       let bytes: Vec<u8> = vec.iter().flat_map(|c| c.to_vec()).collect();
 
-      String::from_utf8(bytes).into_future().map_err(|_| ()) // TODO
+      String::from_utf8(bytes).into_future().map_err(|e| e.into())
     })
     .and_then(|string| {
-      // TODO: why did rustfmt stop working?
-      let ret: Result<AuthTokenResponse, serde_json::Error> = serde_json::from_str(&string);
+      let ret: Result<AuthTokenResponse> =
+        serde_json::from_str(&string).map_err(|e| e.into());
 
-      ret.map_err(|_| ()) // TODO
+      ret.map_err(|e| e.into())
     })
     .and_then(|val| {
-      println!("body: {:#?}", val);
-
+      // println!("body: {:#?}", val);
       match val.error {
-        Some(e) => future::err(e), // TODO: make this better
+        Some(e) => if e == "invalid_grant" {
+          future::err(ErrorKind::InvalidGrant.into())
+        } else {
+          future::err(ErrorKind::ApiError(e.into()).into())
+        },
         None => future::ok(val),
-      }.map_err(|_| ()) // TODO
+      }
     })
-    .map(|val| val.into()) // TODO: ...wait, why is this a todo?
+    .map(|val| val.into())
 }
 
 pub fn authenticate<'auth_state, AuthStateFn>(
   app: RcAppInfo,
+  tok: Option<AuthToken>,
   auth_state: &AuthStateFn,
-) -> impl Future<Item = AuthToken, Error = ()>
+) -> impl Future<Item = AuthToken, Error = Error>
 where
   AuthStateFn: Fn() -> &'auth_state str,
 {
