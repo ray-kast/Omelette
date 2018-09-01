@@ -1,7 +1,7 @@
 use super::prelude_internal::*;
 use base64;
 use futures::{
-  future::{self, Future},
+  future::{self, Either, Future},
   stream::Stream,
   IntoFuture,
 };
@@ -29,6 +29,11 @@ error_chain! {
     ApiError(msg: String) {
       description("Reddit API error"),
       display("Reddit API error '{}'", msg),
+    }
+
+    MissingRefreshTok {
+      description("missing refresh token"),
+      display("missing refresh token (probably a temporary app)"),
     }
 
     BadStatus(code: http::StatusCode) {
@@ -115,7 +120,7 @@ pub struct AuthToken {
   token_type: String,
   expires_in: u32,
   scope: String, // TODO: is this necessary?
-  refresh_token: String,
+  refresh_token: Option<String>,
 }
 
 impl Into<AuthToken> for AuthTokenResponse {
@@ -125,12 +130,12 @@ impl Into<AuthToken> for AuthTokenResponse {
       token_type: self.token_type.unwrap(),
       expires_in: self.expires_in.unwrap(),
       scope: self.scope.unwrap(),
-      refresh_token: self.refresh_token.unwrap(),
+      refresh_token: self.refresh_token,
     }
   }
 }
 
-fn authcode_uri<'state, StateFn>(app: RcAppInfo, state: &StateFn) -> Uri
+fn authcode_uri<'state, StateFn>(app: RcAppInfo, state: StateFn) -> Uri
 where
   StateFn: Fn() -> &'state str,
 {
@@ -154,7 +159,7 @@ where
 
 fn get_authcode<'auth_state, AuthStateFn>(
   app: RcAppInfo,
-  auth_state: &AuthStateFn,
+  auth_state: AuthStateFn,
 ) -> Result<(String, usize)>
 where
   AuthStateFn: Fn() -> &'auth_state str,
@@ -181,7 +186,25 @@ where
   Ok((code, n))
 }
 
-fn auth_token_body(app: RcAppInfo, code: &str) -> String {
+fn create_access_token_request(app: &RcAppInfo) -> http::request::Builder {
+  let mut builder = create_request();
+
+  let uri: Uri = "https://www.reddit.com/api/v1/access_token"
+    .parse()
+    .unwrap();
+
+  builder.method("POST").uri(uri).header(
+    header::AUTHORIZATION,
+    format!(
+      "Basic {}",
+      base64::encode(&format!("{}:{}", app.id.id, app.id.secret))
+    ),
+  );
+
+  builder
+}
+
+fn auth_token_body_for_code(app: RcAppInfo, code: &str) -> String {
   form_urlencoded::Serializer::new(String::new())
     .extend_pairs(
       [
@@ -193,9 +216,20 @@ fn auth_token_body(app: RcAppInfo, code: &str) -> String {
     .finish()
 }
 
+fn auth_token_body_for_refresh(tok: &str) -> String {
+  form_urlencoded::Serializer::new(String::new())
+    .extend_pairs(
+      [
+        ("grant_type", "refresh_token".to_string()),
+        ("refresh_token", tok.to_string()),
+      ].iter(),
+    )
+    .finish()
+}
+
 pub fn authenticate_with_code<'auth_state, AuthStateFn>(
   app: RcAppInfo,
-  auth_state: &AuthStateFn,
+  auth_state: AuthStateFn,
 ) -> impl Future<Item = AuthToken, Error = Error>
 where
   AuthStateFn: Fn() -> &'auth_state str,
@@ -216,45 +250,27 @@ where
         future::ok(code)
       }
     })
-    .and_then(move |code| {
+    .and_then(|code| {
       let app = app_1;
 
-      // println!("auth code: {}", code);
-
-      let mut builder = create_request();
-
-      let uri: Uri = "https://www.reddit.com/api/v1/access_token"
-        .parse()
-        .unwrap();
-
-      builder.method("POST").uri(uri).header(
-        header::AUTHORIZATION,
-        format!(
-          "Basic {}",
-          base64::encode(&format!("{}:{}", app.id.id, app.id.secret))
-        ),
-      );
-
-      let req_body = hyper::Body::from(auth_token_body(app.clone(), &code));
-
-      builder.body(req_body).into_future().map_err(|e| e.into())
+      create_access_token_request(&app)
+        .body(hyper::Body::from(auth_token_body_for_code(
+          app.clone(),
+          &code,
+        )))
+        .into_future()
+        .map_err(|e| e.into())
     })
-    .and_then(move |req| {
+    .and_then(|req| {
       let client = client_1;
 
       client.request(req).map_err(|e| e.into())
     })
-    .and_then(|res| {
-      if res.status() == 200 {
-        future::ok(res)
-      } else {
-        future::err(ErrorKind::BadStatus(res.status()).into())
-      }
+    .and_then(|res| match res.status() {
+      http::StatusCode::OK => future::ok(res),
+      s => future::err(ErrorKind::BadStatus(s).into()),
     })
-    .and_then(|res| {
-      // println!("response: {:#?}", res);
-      res.into_body().collect().map_err(|e| e.into())
-    })
+    .and_then(|res| res.into_body().collect().map_err(|e| e.into()))
     .and_then(|vec| {
       // TODO: this seems mildly problematic
       let bytes: Vec<u8> = vec.iter().flat_map(|c| c.to_vec()).collect();
@@ -267,27 +283,89 @@ where
 
       ret.map_err(|e| e.into())
     })
-    .and_then(|val| {
-      // println!("body: {:#?}", val);
-      match val.error {
-        Some(e) => if e == "invalid_grant" {
-          future::err(ErrorKind::InvalidGrant.into())
-        } else {
-          future::err(ErrorKind::ApiError(e.into()).into())
-        },
-        None => future::ok(val),
-      }
+    .and_then(|val| match val.error {
+      Some(e) => if e == "invalid_grant" {
+        future::err(ErrorKind::InvalidGrant.into())
+      } else {
+        future::err(ErrorKind::ApiError(e.into()).into())
+      },
+      None => future::ok(val.into()),
     })
-    .map(|val| val.into())
+}
+
+// TODO: much of this is duplicated from authenticate_with_code
+pub fn authenticate_with_refresh(
+  app: RcAppInfo,
+  tok: AuthToken,
+) -> impl Future<Item = AuthToken, Error = Error> {
+  let conn = hyper_tls::HttpsConnector::new(4).unwrap(); // TODO
+  let client = Arc::new(hyper::Client::builder().build::<_, hyper::Body>(conn));
+
+  let app_1 = app.clone();
+  let client_1 = client.clone();
+
+  match tok.refresh_token {
+    Some(s) => future::ok(s),
+    None => future::err(ErrorKind::MissingRefreshTok.into()),
+  }.and_then(|s| {
+    let app = app_1;
+
+    create_access_token_request(&app)
+      .body(hyper::Body::from(auth_token_body_for_refresh(&s)))
+      .into_future()
+      .map_err(|e| e.into())
+      .and_then(|req| {
+        let client = client_1;
+
+        client.request(req).map_err(|e| e.into())
+      })
+      .and_then(|res| match res.status() {
+        http::StatusCode::OK => future::ok(res),
+        s => future::err(ErrorKind::BadStatus(s).into()),
+      })
+      .and_then(|res| res.into_body().collect().map_err(|e| e.into()))
+      .and_then(|vec| {
+        // TODO: this seems mildly problematic
+        let bytes: Vec<u8> = vec.iter().flat_map(|c| c.to_vec()).collect();
+
+        String::from_utf8(bytes).into_future().map_err(|e| e.into())
+      })
+      .and_then(|string| {
+        let ret: Result<AuthTokenResponse> =
+          serde_json::from_str(&string).map_err(|e| e.into());
+
+        ret.map_err(|e| e.into())
+      })
+      .and_then(|val| match val.error {
+        Some(e) => future::err(ErrorKind::ApiError(e.into()).into()),
+        None => future::ok(AuthToken {
+          refresh_token: Some(s),
+          ..val.into()
+        }),
+      })
+  })
 }
 
 pub fn authenticate<'auth_state, AuthStateFn>(
   app: RcAppInfo,
   tok: Option<AuthToken>,
-  auth_state: &AuthStateFn,
+  auth_state: AuthStateFn,
 ) -> impl Future<Item = AuthToken, Error = Error>
 where
   AuthStateFn: Fn() -> &'auth_state str,
 {
-  authenticate_with_code(app, auth_state)
+  match tok {
+    Some(tok) => {
+      let app_1 = app.clone();
+
+      // TODO: verify that the token settings match the requested app settings
+
+      Either::A(authenticate_with_refresh(app, tok).or_else(|err| {
+        println!("failed to refresh token: {}", err);
+
+        authenticate_with_code(app_1, auth_state)
+      }))
+    }
+    None => Either::B(authenticate_with_code(app, auth_state)),
+  }
 }

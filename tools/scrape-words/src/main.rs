@@ -15,9 +15,23 @@ extern crate serde_derive;
 
 mod reddit;
 
-use futures::Future;
+use futures::{Future, IntoFuture};
 use reddit::auth::{self, AppDuration, AppId, AppInfo, AuthToken};
-use std::{fs::File, io::BufReader};
+use std::{
+  fs::File,
+  io::{self, BufReader, BufWriter},
+};
+
+error_chain! {
+  links {
+    Auth(auth::Error, auth::ErrorKind);
+  }
+
+  foreign_links {
+    Io(io::Error);
+    Serde(serde_json::Error);
+  }
+}
 
 fn main() {
   let id: AppId;
@@ -30,17 +44,17 @@ fn main() {
     id = serde_json::from_reader(file).expect("failed to parse apikey.json");
   }
 
-  fn retrieve_token() -> Result<AuthToken, ()> {
-    let file = File::open("etc/apitoken.json").map_err(|_| ())?; // TODO
+  fn retrieve_token() -> Result<AuthToken> {
+    let file = File::open("etc/apitok.json")?;
     let file = BufReader::new(file);
 
-    serde_json::from_reader(file).map_err(|_| ())? // TODO
+    serde_json::from_reader(file).map_err(|e| e.into()) // TODO: is there a cleaner way to do this?
   }
 
   let tok = match retrieve_token() {
     Ok(tok) => Some(tok),
-    Err(_) => {
-      // TODO
+    Err(e) => {
+      println!("failed to get saved token: {}", e);
       None
     }
   };
@@ -54,9 +68,20 @@ fn main() {
 
   tokio::run(
     auth::authenticate(app.clone(), tok, &|| "uwu")
-      .map(|tok| {
-        println!("token: {:#?}", tok);
+      .map_err(|e| e.into())
+      .and_then(|tok| {
+        File::create("etc/apitok.json")
+          .into_future()
+          .map(|f| (f, tok))
+          .map_err(|e| e.into())
       })
-      .map_err(|e| println!("authentication failed: {}", e)),
+      .and_then(|(file, tok)| {
+        let file = BufWriter::new(file);
+
+        serde_json::to_writer(file, &tok)
+          .into_future()
+          .map_err(|e| e.into())
+      })
+      .map_err(|e: Error| println!("encountered an error: {}", e)), // TODO: make this less vague
   );
 }
