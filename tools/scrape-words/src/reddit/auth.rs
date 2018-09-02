@@ -1,28 +1,29 @@
-use super::prelude_internal::*;
+use super::{
+  request::{self, RcClient},
+  AppDuration, RcAppInfo,
+};
 use base64;
 use futures::{
   future::{self, Either, Future},
-  stream::Stream,
   IntoFuture,
 };
 use http::{self, header, Uri};
 use hyper;
-use hyper_tls;
-use serde_json;
 use std::{
+  collections::BTreeSet,
   io::{self, Write},
-  string,
   sync::Arc,
 };
 use url::form_urlencoded;
 
 error_chain! {
+  links {
+    Request(request::Error, request::ErrorKind);
+  }
+
   foreign_links {
-    FromUtf8(string::FromUtf8Error);
     Http(http::Error);
-    Hyper(hyper::Error);
     Io(io::Error);
-    Serde(serde_json::Error);
   }
 
   errors {
@@ -36,11 +37,6 @@ error_chain! {
       display("missing refresh token (probably a temporary app)"),
     }
 
-    BadStatus(code: http::StatusCode) {
-      description("got unexpected HTTP status"),
-      display("got unexpected HTTP status {}", code),
-    }
-
     Eof(at: String) {
       description("stdin closed"),
       display("stdin closed while reading {}", at),
@@ -50,57 +46,6 @@ error_chain! {
       description("invalid grant"),
       display("invalid grant (probably expired authcode)"),
     }
-  }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct AppId {
-  id: String,
-  secret: String,
-}
-
-// impl AppId {
-//   pub fn id(&self) -> &str {
-//     &self.id
-//   }
-// }
-
-pub enum AppDuration {
-  Temporary,
-  Permanent,
-}
-
-impl ToString for AppDuration {
-  fn to_string(&self) -> String {
-    match self {
-      AppDuration::Temporary => "temporary",
-      AppDuration::Permanent => "permanent",
-    }.to_string()
-  }
-}
-
-pub struct AppInfo {
-  id: AppId,
-  redir: Uri,
-  duration: AppDuration,
-  scope: String, // TODO: make this not a string maybe?
-}
-
-type RcAppInfo = Arc<AppInfo>;
-
-impl AppInfo {
-  pub fn new_rc(
-    id: AppId,
-    redir: Uri,
-    duration: AppDuration,
-    scope: &str,
-  ) -> RcAppInfo {
-    Arc::new(Self {
-      id,
-      redir,
-      duration,
-      scope: scope.to_string(),
-    })
   }
 }
 
@@ -119,9 +64,17 @@ pub struct AuthToken {
   access_token: String,
   token_type: String,
   expires_in: u32,
-  scope: String, // TODO: is this necessary?
+  scope: BTreeSet<String>,
   refresh_token: Option<String>,
 }
+
+impl AuthToken {
+  pub fn access_token(&self) -> &str {
+    &self.access_token
+  }
+}
+
+pub type RcAuthToken = Arc<AuthToken>;
 
 impl Into<AuthToken> for AuthTokenResponse {
   fn into(self) -> AuthToken {
@@ -129,7 +82,12 @@ impl Into<AuthToken> for AuthTokenResponse {
       access_token: self.access_token.unwrap(),
       token_type: self.token_type.unwrap(),
       expires_in: self.expires_in.unwrap(),
-      scope: self.scope.unwrap(),
+      scope: self
+        .scope
+        .unwrap()
+        .split(" ")
+        .map(|e| e.to_string())
+        .collect(),
       refresh_token: self.refresh_token,
     }
   }
@@ -142,12 +100,20 @@ where
   let query = form_urlencoded::Serializer::new(String::new())
     .extend_pairs(
       [
-        ("client_id", app.id.id.clone()),
+        ("client_id", app.id().id().to_string()),
         ("response_type", "code".to_string()),
         ("state", state().to_string()),
-        ("redirect_uri", app.redir.to_string()),
-        ("duration", app.duration.to_string()),
-        ("scope", app.scope.clone()),
+        ("redirect_uri", app.redir().to_string()),
+        ("duration", app.duration().to_string()),
+        (
+          "scope",
+          app
+            .scope()
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .join(" "), // TODO: use the iterator join method when it's available
+        ),
       ].iter(),
     )
     .finish();
@@ -187,19 +153,18 @@ where
 }
 
 fn create_access_token_request(app: &RcAppInfo) -> http::request::Builder {
-  let mut builder = create_request();
+  let mut builder = request::create_request(app.clone());
 
-  let uri: Uri = "https://www.reddit.com/api/v1/access_token"
-    .parse()
-    .unwrap();
-
-  builder.method("POST").uri(uri).header(
-    header::AUTHORIZATION,
-    format!(
-      "Basic {}",
-      base64::encode(&format!("{}:{}", app.id.id, app.id.secret))
-    ),
-  );
+  builder
+    .method("POST")
+    .uri("https://www.reddit.com/api/v1/access_token")
+    .header(
+      header::AUTHORIZATION,
+      format!(
+        "basic {}",
+        base64::encode(&format!("{}:{}", app.id().id(), app.id().secret()))
+      ),
+    );
 
   builder
 }
@@ -210,7 +175,7 @@ fn auth_token_body_for_code(app: RcAppInfo, code: &str) -> String {
       [
         ("grant_type", "authorization_code".to_string()),
         ("code", code.to_string()),
-        ("redirect_uri", app.redir.to_string()),
+        ("redirect_uri", app.redir().to_string()),
       ].iter(),
     )
     .finish()
@@ -229,15 +194,12 @@ fn auth_token_body_for_refresh(tok: &str) -> String {
 
 pub fn authenticate_with_code<'auth_state, AuthStateFn>(
   app: RcAppInfo,
+  client: RcClient,
   auth_state: AuthStateFn,
-) -> impl Future<Item = AuthToken, Error = Error>
+) -> impl Future<Item = RcAuthToken, Error = Error>
 where
   AuthStateFn: Fn() -> &'auth_state str,
 {
-  let conn = hyper_tls::HttpsConnector::new(4).unwrap(); // TODO
-  let client = Arc::new(hyper::Client::builder().build::<_, hyper::Body>(conn));
-
-  // I hate this.
   let app_1 = app.clone();
   let client_1 = client.clone();
 
@@ -259,48 +221,28 @@ where
           &code,
         )))
         .into_future()
-        .map_err(|e| e.into())
-    })
-    .and_then(|req| {
-      let client = client_1;
+        .from_err()
+        .and_then(|req| {
+          let client = client_1;
 
-      client.request(req).map_err(|e| e.into())
-    })
-    .and_then(|res| match res.status() {
-      http::StatusCode::OK => future::ok(res),
-      s => future::err(ErrorKind::BadStatus(s).into()),
-    })
-    .and_then(|res| res.into_body().collect().map_err(|e| e.into()))
-    .and_then(|vec| {
-      // TODO: this seems mildly problematic
-      let bytes: Vec<u8> = vec.iter().flat_map(|c| c.to_vec()).collect();
-
-      String::from_utf8(bytes).into_future().map_err(|e| e.into())
-    })
-    .and_then(|string| {
-      let ret: Result<AuthTokenResponse> =
-        serde_json::from_str(&string).map_err(|e| e.into());
-
-      ret.map_err(|e| e.into())
-    })
-    .and_then(|val| match val.error {
-      Some(e) => if e == "invalid_grant" {
-        future::err(ErrorKind::InvalidGrant.into())
-      } else {
-        future::err(ErrorKind::ApiError(e.into()).into())
-      },
-      None => future::ok(val.into()),
+          request::request_json(client, req).from_err()
+        })
+        .and_then(|val: AuthTokenResponse| match val.error {
+          Some(e) => if e == "invalid_grant" {
+            future::err(ErrorKind::InvalidGrant.into())
+          } else {
+            future::err(ErrorKind::ApiError(e).into())
+          },
+          None => future::ok(Arc::new(val.into())),
+        })
     })
 }
 
-// TODO: much of this is duplicated from authenticate_with_code
 pub fn authenticate_with_refresh(
   app: RcAppInfo,
+  client: RcClient,
   tok: AuthToken,
-) -> impl Future<Item = AuthToken, Error = Error> {
-  let conn = hyper_tls::HttpsConnector::new(4).unwrap(); // TODO
-  let client = Arc::new(hyper::Client::builder().build::<_, hyper::Body>(conn));
-
+) -> impl Future<Item = RcAuthToken, Error = Error> {
   let app_1 = app.clone();
   let client_1 = client.clone();
 
@@ -313,59 +255,52 @@ pub fn authenticate_with_refresh(
     create_access_token_request(&app)
       .body(hyper::Body::from(auth_token_body_for_refresh(&s)))
       .into_future()
-      .map_err(|e| e.into())
+      .from_err()
       .and_then(|req| {
         let client = client_1;
 
-        client.request(req).map_err(|e| e.into())
+        request::request_json(client, req).from_err()
       })
-      .and_then(|res| match res.status() {
-        http::StatusCode::OK => future::ok(res),
-        s => future::err(ErrorKind::BadStatus(s).into()),
-      })
-      .and_then(|res| res.into_body().collect().map_err(|e| e.into()))
-      .and_then(|vec| {
-        // TODO: this seems mildly problematic
-        let bytes: Vec<u8> = vec.iter().flat_map(|c| c.to_vec()).collect();
-
-        String::from_utf8(bytes).into_future().map_err(|e| e.into())
-      })
-      .and_then(|string| {
-        let ret: Result<AuthTokenResponse> =
-          serde_json::from_str(&string).map_err(|e| e.into());
-
-        ret.map_err(|e| e.into())
-      })
-      .and_then(|val| match val.error {
+      .and_then(|val: AuthTokenResponse| match val.error {
         Some(e) => future::err(ErrorKind::ApiError(e.into()).into()),
-        None => future::ok(AuthToken {
+        None => future::ok(Arc::new(AuthToken {
           refresh_token: Some(s),
           ..val.into()
-        }),
+        })),
       })
   })
 }
 
 pub fn authenticate<'auth_state, AuthStateFn>(
   app: RcAppInfo,
+  client: RcClient,
   tok: Option<AuthToken>,
   auth_state: AuthStateFn,
-) -> impl Future<Item = AuthToken, Error = Error>
+) -> impl Future<Item = RcAuthToken, Error = Error>
 where
   AuthStateFn: Fn() -> &'auth_state str,
 {
   match tok {
     Some(tok) => {
       let app_1 = app.clone();
+      let client_1 = client.clone();
 
-      // TODO: verify that the token settings match the requested app settings
+      if &tok.scope == app.scope() && match tok.refresh_token {
+        Some(_) => AppDuration::Permanent,
+        None => AppDuration::Temporary,
+      } == app.duration()
+      {
+        Either::A(authenticate_with_refresh(app, client, tok).or_else(|err| {
+          println!("failed to refresh token: {}", err);
 
-      Either::A(authenticate_with_refresh(app, tok).or_else(|err| {
-        println!("failed to refresh token: {}", err);
+          authenticate_with_code(app_1, client_1, auth_state)
+        }))
+      } else {
+        println!("token data mismatch, requesting new token");
 
-        authenticate_with_code(app_1, auth_state)
-      }))
+        Either::B(authenticate_with_code(app, client, auth_state))
+      }
     }
-    None => Either::B(authenticate_with_code(app, auth_state)),
+    None => Either::B(authenticate_with_code(app, client, auth_state)),
   }
 }

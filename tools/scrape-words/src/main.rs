@@ -15,19 +15,28 @@ extern crate serde_derive;
 
 mod reddit;
 
-use futures::{Future, IntoFuture};
-use reddit::auth::{self, AppDuration, AppId, AppInfo, AuthToken};
+use futures::{future, Future, IntoFuture};
+use reddit::{
+  auth::{self, AuthToken},
+  read, request, AppDuration, AppId, AppInfo,
+};
 use std::{
   fs::File,
   io::{self, BufReader, BufWriter},
+  string,
 };
 
 error_chain! {
   links {
     Auth(auth::Error, auth::ErrorKind);
+    Read(read::Error, read::ErrorKind);
+    Request(request::Error, request::ErrorKind);
   }
 
   foreign_links {
+    FromUtf8(string::FromUtf8Error);
+    Http(http::Error);
+    Hyper(hyper::Error);
     Io(io::Error);
     Serde(serde_json::Error);
   }
@@ -48,7 +57,7 @@ fn main() {
     let file = File::open("etc/apitok.json")?;
     let file = BufReader::new(file);
 
-    serde_json::from_reader(file).map_err(|e| e.into()) // TODO: is there a cleaner way to do this?
+    Ok(serde_json::from_reader(file)?)
   }
 
   let tok = match retrieve_token() {
@@ -63,25 +72,51 @@ fn main() {
     id,
     "http://rk1024.net/".parse().unwrap(),
     AppDuration::Permanent,
-    "read",
+    "read".split(" "),
+    "linux",
+    "rk1024/scrape-words",
+    "v0.1.0",
+    "rookie1024",
   );
 
-  tokio::run(
-    auth::authenticate(app.clone(), tok, &|| "uwu")
-      .map_err(|e| e.into())
+  tokio::run(future::lazy(move || {
+    let client = request::create_client_rc().unwrap();
+
+    let app_1 = app.clone();
+    let client_1 = client.clone();
+
+    auth::authenticate(app.clone(), client, tok, &|| "uwu")
+      .from_err()
       .and_then(|tok| {
+        let tok_1 = tok.clone();
+
         File::create("etc/apitok.json")
           .into_future()
-          .map(|f| (f, tok))
-          .map_err(|e| e.into())
-      })
-      .and_then(|(file, tok)| {
-        let file = BufWriter::new(file);
+          .from_err()
+          .and_then(|file| {
+            let file = BufWriter::new(file);
 
-        serde_json::to_writer(file, &tok)
-          .into_future()
-          .map_err(|e| e.into())
+            serde_json::to_writer(file, tok.as_ref())
+              .into_future()
+              .map(|_| tok)
+              .from_err()
+          })
+          .and_then(|_| {
+            let app = app_1;
+            let tok = tok_1;
+            let client = client_1;
+
+            read::list_subreddit(
+              app.clone(),
+              tok.clone(),
+              client.clone(),
+              "nice_guys".into(),
+              read::SortType::Top(read::SortRange::All),
+            ).from_err()
+          })
       })
-      .map_err(|e: Error| println!("encountered an error: {}", e)), // TODO: make this less vague
-  );
+      .map(|_| ())
+      // .map(|r| println!("return value: {:#?}", r))
+      .map_err(|e: Error| println!("encountered an error: {}", e)) // TODO: make this less vague
+  }));
 }
