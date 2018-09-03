@@ -5,7 +5,11 @@ use hyper;
 use hyper_tls;
 use serde;
 use serde_json;
-use std::{string, sync::Arc};
+use std::{
+  io::{self, Write},
+  string,
+  sync::Arc,
+};
 
 error_chain! {
   foreign_links {
@@ -69,7 +73,18 @@ pub fn request_string(
     .and_then(|res| {
       let status = res.status();
 
-      println!("headers: {:#?}", res.headers());
+      // TODO: pay attention to x-ratelimit headers
+
+      if res.headers().contains_key("x-ratelimit-remaining") {
+        write!(
+          io::stderr(),
+          "x-ratelimit-remaining: {}\n",
+          match res.headers()["x-ratelimit-remaining"].to_str() {
+            Ok(s) => s,
+            Err(_) => "<non-text>",
+          }
+        ).unwrap();
+      }
 
       res
         .into_body()
@@ -91,6 +106,7 @@ pub fn request_string(
     })
 }
 
+// TODO: better error handling
 pub fn request_json<T>(
   client: RcClient,
   req: Request,
@@ -98,6 +114,8 @@ pub fn request_json<T>(
 where
   T: for<'de> serde::Deserialize<'de>,
 {
-  request_string(client, req)
-    .and_then(|string| serde_json::from_str(&string).into_future().from_err())
+  request_string(client, req).and_then(|string| {
+    // println!("string: {}", string);
+    serde_json::from_str(&string).into_future().from_err()
+  })
 }

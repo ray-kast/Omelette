@@ -1,12 +1,11 @@
 use super::{
   auth::RcAuthToken,
   request::{self, RcClient},
-  RcAppInfo,
+  types, RcAppInfo,
 };
 use futures::{Future, IntoFuture};
 use http;
 use hyper;
-use serde_json;
 use url::{form_urlencoded, percent_encoding};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -28,14 +27,10 @@ pub enum SortType {
   Controversial(SortRange),
 }
 
-#[derive(Deserialize)]
-pub struct Listing<T> {
-  children: Vec<T>,
-}
-
 error_chain!{
   links {
     Request(request::Error, request::ErrorKind);
+    Types(types::Error, types::ErrorKind);
   }
 
   foreign_links {
@@ -68,13 +63,15 @@ impl ToString for SortType {
   }
 }
 
+// TODO: add the API parameters here
 pub fn list_subreddit(
   app: RcAppInfo,
   tok: RcAuthToken,
   client: RcClient,
   subreddit: String,
   sort: SortType,
-) -> impl Future<Item = Listing<serde_json::Value>, Error = Error> {
+  limit: Option<u32>, // TODO: do the thing with From<>
+) -> impl Future<Item = types::Listing, Error = Error> {
   let mut query = form_urlencoded::Serializer::new(String::new());
 
   match sort {
@@ -85,6 +82,13 @@ pub fn list_subreddit(
       query.append_pair("t", &range.to_string());
     }
     _ => {}
+  }
+
+  match limit {
+    Some(c) => {
+      query.append_pair("limit", &c.to_string());
+    }
+    None => {}
   }
 
   let query = query.finish();
@@ -103,9 +107,31 @@ pub fn list_subreddit(
     .body(hyper::Body::empty())
     .into_future()
     .from_err()
-    .and_then(|req| {
-      println!("request: {:#?}", req);
-
-      request::request_json(client, req).from_err()
+    .and_then(|req| request::request_json(client, req).from_err())
+    .and_then(|thing: types::Thing| {
+      thing.try_into_listing().into_future().from_err()
     })
+}
+
+pub fn get_comments(
+  app: RcAppInfo,
+  tok: RcAuthToken,
+  client: RcClient,
+  link: &types::Link,
+) -> impl Future<Item = (types::Thing, types::Thing), Error = Error> {
+  // TODO: what's the actual type of the return?
+
+  request::create_request_authorized(app.clone(), tok.clone())
+    .method("GET")
+    .uri(format!(
+      "https://oauth.reddit.com/comments/{}",
+      percent_encoding::utf8_percent_encode(
+        &link.id,
+        percent_encoding::PATH_SEGMENT_ENCODE_SET
+      )
+    ))
+    .body(hyper::Body::empty())
+    .into_future()
+    .from_err()
+    .and_then(|req| request::request_json(client, req).from_err())
 }
