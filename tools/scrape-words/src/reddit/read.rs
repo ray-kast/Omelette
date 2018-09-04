@@ -71,6 +71,7 @@ pub fn list_subreddit(
   subreddit: String,
   sort: SortType,
   limit: Option<u32>, // TODO: do the thing with From<>
+  after: Option<String>,
 ) -> impl Future<Item = types::Listing, Error = Error> {
   let mut query = form_urlencoded::Serializer::new(String::new());
 
@@ -85,8 +86,15 @@ pub fn list_subreddit(
   }
 
   match limit {
-    Some(c) => {
-      query.append_pair("limit", &c.to_string());
+    Some(l) => {
+      query.append_pair("limit", &l.to_string());
+    }
+    None => {}
+  }
+
+  match after {
+    Some(a) => {
+      query.append_pair("after", &a);
     }
     None => {}
   }
