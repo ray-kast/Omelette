@@ -1,7 +1,7 @@
 use http::Uri;
 use std::{collections::BTreeSet, sync::Arc};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AppId {
   id: String,
   secret: String,
@@ -17,7 +17,7 @@ impl AppId {
   }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppDuration {
   Temporary,
   Permanent,
@@ -32,7 +32,7 @@ impl ToString for AppDuration {
   }
 }
 
-// TODO: this probably belongs in another module
+#[derive(Debug)]
 pub struct AppInfo {
   id: AppId,
   redir: Uri,

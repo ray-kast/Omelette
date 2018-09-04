@@ -28,12 +28,9 @@ use reddit::{
 };
 use regex::Regex;
 use std::{
-  borrow::{Borrow, Cow},
-  cell::RefCell,
   fs::File,
   io::{self, BufReader, BufWriter, Write},
   ops::DerefMut,
-  string,
   sync::{Arc, Mutex},
 };
 
@@ -125,8 +122,6 @@ fn main() {
   fn get_body_string(html: &str) -> Result<String> {
     let body = process_html::unwrap(html)?;
 
-    // println!("{}", body);
-
     Ok(process_html::pretty_unwrap(&body)?)
   }
 
@@ -135,6 +130,8 @@ fn main() {
     W: Write,
   {
     writeln!(outs, "## ({}) {} ({})", link.score, link.title, link.url)?;
+
+    writeln!(outs, "  ## u/{}", link.author)?;
 
     let body = link.selftext_html.clone().unwrap_or("".into());
     let body = get_body_string(&body)?;
@@ -196,6 +193,8 @@ fn main() {
     Ok(())
   }
 
+  // TODO: handle flair?
+
   fn dump_link<W>(link: &types::Link, outs: &mut W) -> Result<()>
   where
     W: Write,
@@ -252,6 +251,8 @@ fn main() {
     let subreddit = args[1].clone();
     let limit: u32 = args[2].parse().unwrap();
     let pretty: bool = args[3].parse().unwrap();
+
+    let pretty_1 = pretty.clone();
 
     writeln!(io::stderr(), "authenticating...").unwrap();
 
@@ -357,7 +358,8 @@ fn main() {
                 }
               })
           })
-          .and_then(|_| {
+          .and_then(move |_| {
+            let pretty = pretty_1;
             writeln!(io::stderr(), "printing data...").unwrap();
 
             let outs = outs_2;
@@ -370,11 +372,13 @@ fn main() {
 
             let string = String::from_utf8(outs).unwrap();
 
-            // TODO: apply a Unicode decomp transform
+            if !pretty {
+              // TODO: apply a Unicode decomp transform
 
-            // let string = NONWORD_RE.replace_all(&string, "");
+              // let string = NONWORD_RE.replace_all(&string, "");
 
-            let string = WHITESPACE_RE.replace_all(&string, " ");
+              let string = WHITESPACE_RE.replace_all(&string, " ");
+            }
 
             print!("{}", string);
 
