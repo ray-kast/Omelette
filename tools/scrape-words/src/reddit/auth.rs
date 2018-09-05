@@ -93,9 +93,12 @@ impl Into<AuthToken> for AuthTokenResponse {
   }
 }
 
-fn authcode_uri<'state, StateFn>(app: RcAppInfo, state: StateFn) -> Uri
+// TODO: aw, man (feature not yet implemented)
+// pub trait AuthStateFn = Fn() -> String;
+
+fn authcode_uri<StateFn>(app: RcAppInfo, state: StateFn) -> Uri
 where
-  StateFn: Fn() -> &'state str,
+  StateFn: Fn() -> String,
 {
   let query = form_urlencoded::Serializer::new(String::new())
     .extend_pairs(
@@ -123,12 +126,12 @@ where
     .unwrap()
 }
 
-fn get_authcode<'auth_state, AuthStateFn>(
+fn get_authcode<AuthStateFn>(
   app: RcAppInfo,
   auth_state: AuthStateFn,
 ) -> Result<(String, usize)>
 where
-  AuthStateFn: Fn() -> &'auth_state str,
+  AuthStateFn: Fn() -> String,
 {
   let mut code = String::new();
 
@@ -192,13 +195,14 @@ fn auth_token_body_for_refresh(tok: &str) -> String {
     .finish()
 }
 
-pub fn authenticate_with_code<'auth_state, AuthStateFn>(
+pub fn authenticate_with_code<AuthStateFn>(
   app: RcAppInfo,
   client: RcClient,
+  rl: request::RcRatelimitData,
   auth_state: AuthStateFn,
 ) -> impl Future<Item = RcAuthToken, Error = Error>
 where
-  AuthStateFn: Fn() -> &'auth_state str,
+  AuthStateFn: Fn() -> String,
 {
   let app_1 = app.clone();
   let client_1 = client.clone();
@@ -225,7 +229,7 @@ where
         .and_then(|req| {
           let client = client_1;
 
-          request::request_json(client, req).from_err()
+          request::request_json(client, rl, req).from_err()
         })
         .and_then(|val: AuthTokenResponse| match val.error {
           Some(e) => if e == "invalid_grant" {
@@ -241,6 +245,7 @@ where
 pub fn authenticate_with_refresh(
   app: RcAppInfo,
   client: RcClient,
+  rl: request::RcRatelimitData,
   tok: AuthToken,
 ) -> impl Future<Item = RcAuthToken, Error = Error> {
   let app_1 = app.clone();
@@ -259,7 +264,7 @@ pub fn authenticate_with_refresh(
       .and_then(|req| {
         let client = client_1;
 
-        request::request_json(client, req).from_err()
+        request::request_json(client, rl, req).from_err()
       })
       .and_then(|val: AuthTokenResponse| match val.error {
         Some(e) => future::err(ErrorKind::ApiError(e.into()).into()),
@@ -274,33 +279,37 @@ pub fn authenticate_with_refresh(
 pub fn authenticate<'auth_state, AuthStateFn>(
   app: RcAppInfo,
   client: RcClient,
+  rl: request::RcRatelimitData,
   tok: Option<AuthToken>,
   auth_state: AuthStateFn,
 ) -> impl Future<Item = RcAuthToken, Error = Error>
 where
-  AuthStateFn: Fn() -> &'auth_state str,
+  AuthStateFn: Fn() -> String,
 {
   match tok {
     Some(tok) => {
-      let app_1 = app.clone();
-      let client_1 = client.clone();
-
       if &tok.scope == app.scope() && match tok.refresh_token {
         Some(_) => AppDuration::Permanent,
         None => AppDuration::Temporary,
       } == app.duration()
       {
-        Either::A(authenticate_with_refresh(app, client, tok).or_else(|err| {
-          println!("failed to refresh token: {}", err);
+        let app_1 = app.clone();
+        let client_1 = client.clone();
+        let rl_1 = rl.clone();
 
-          authenticate_with_code(app_1, client_1, auth_state)
-        }))
+        Either::A(authenticate_with_refresh(app, client, rl, tok).or_else(
+          |err| {
+            println!("failed to refresh token: {}", err);
+
+            authenticate_with_code(app_1, client_1, rl_1, auth_state)
+          },
+        ))
       } else {
         println!("token data mismatch, requesting new token");
 
-        Either::B(authenticate_with_code(app, client, auth_state))
+        Either::B(authenticate_with_code(app, client, rl, auth_state))
       }
     }
-    None => Either::B(authenticate_with_code(app, client, auth_state)),
+    None => Either::B(authenticate_with_code(app, client, rl, auth_state)),
   }
 }

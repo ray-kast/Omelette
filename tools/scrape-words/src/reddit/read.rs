@@ -1,8 +1,4 @@
-use super::{
-  auth::RcAuthToken,
-  request::{self, RcClient},
-  types, RcAppInfo,
-};
+use super::{auth::RcAuthToken, client::RcClient, request, types, RcAppInfo};
 use futures::{Future, IntoFuture};
 use http;
 use hyper;
@@ -65,8 +61,6 @@ impl ToString for SortType {
 
 // TODO: add the API parameters here
 pub fn list_subreddit(
-  app: RcAppInfo,
-  tok: RcAuthToken,
   client: RcClient,
   subreddit: String,
   sort: SortType,
@@ -101,7 +95,7 @@ pub fn list_subreddit(
 
   let query = query.finish();
 
-  request::create_request_authorized(app.clone(), tok.clone())
+  request::create_request_authorized(client.clone())
     .method("GET")
     .uri(format!(
       "https://oauth.reddit.com/r/{}/{}?{}",
@@ -115,21 +109,21 @@ pub fn list_subreddit(
     .body(hyper::Body::empty())
     .into_future()
     .from_err()
-    .and_then(|req| request::request_json(client, req).from_err())
+    .and_then(move |req| {
+      request::request_json(client.client(), client.rl(), req).from_err()
+    })
     .and_then(|thing: types::Thing| {
       thing.try_into_listing().into_future().from_err()
     })
 }
 
 pub fn get_comments(
-  app: RcAppInfo,
-  tok: RcAuthToken,
   client: RcClient,
   link: &types::Link,
 ) -> impl Future<Item = (types::Thing, types::Thing), Error = Error> {
   // TODO: what's the actual type of the return?
 
-  request::create_request_authorized(app.clone(), tok.clone())
+  request::create_request_authorized(client.clone())
     .method("GET")
     .uri(format!(
       "https://oauth.reddit.com/comments/{}",
@@ -141,5 +135,7 @@ pub fn get_comments(
     .body(hyper::Body::empty())
     .into_future()
     .from_err()
-    .and_then(|req| request::request_json(client, req).from_err())
+    .and_then(move |req| {
+      request::request_json(client.client(), client.rl(), req).from_err()
+    })
 }
