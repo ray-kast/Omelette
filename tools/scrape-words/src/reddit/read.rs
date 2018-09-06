@@ -2,6 +2,8 @@ use super::{auth::RcAuthToken, client::RcClient, request, types, RcAppInfo};
 use futures::{Future, IntoFuture};
 use http;
 use hyper;
+use regex::Regex;
+use std::str::FromStr;
 use url::{form_urlencoded, percent_encoding};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,6 +36,23 @@ error_chain!{
   }
 }
 
+error_chain! {
+  types {
+    ParseError, ParseErrorKind, ParseResultExt, ParseResult;
+  }
+
+  errors {
+    NoMatch(s: String) {
+      description("string matched nothing"),
+      display("string '{}' matched nothing", s),
+    }
+    BadSyntax(s: String, expecting: String) {
+      description("bad syntax"),
+      display("bad syntax for '{}', expecting {}", s, expecting),
+    }
+  }
+}
+
 impl ToString for SortRange {
   fn to_string(&self) -> String {
     match self {
@@ -47,6 +66,23 @@ impl ToString for SortRange {
   }
 }
 
+impl FromStr for SortRange {
+  type Err = ParseError;
+
+  fn from_str(s: &str) -> ParseResult<Self> {
+    match s {
+      "hour" => Ok(SortRange::Hour),
+      "day" => Ok(SortRange::Day),
+      "week" => Ok(SortRange::Week),
+      "month" => Ok(SortRange::Month),
+      "year" => Ok(SortRange::Year),
+      "all" => Ok(SortRange::All),
+      s => Err(ParseErrorKind::NoMatch(s.into()).into()),
+    }
+  }
+}
+
+// TODO: this is not symmetric with FromString
 impl ToString for SortType {
   fn to_string(&self) -> String {
     match self {
@@ -56,6 +92,48 @@ impl ToString for SortType {
       SortType::Top(_) => "top",
       SortType::Controversial(_) => "controversial",
     }.to_string()
+  }
+}
+
+impl FromStr for SortType {
+  type Err = ParseError;
+
+  fn from_str(s: &str) -> ParseResult<Self> {
+    lazy_static! {
+      static ref RANGED_RE: Regex = Regex::new(r"(\w+)\s*\((\w+)\)").unwrap();
+    }
+
+    match s {
+      "hot" => Ok(SortType::Hot),
+      "new" => Ok(SortType::New),
+      "rising" => Ok(SortType::Rising),
+      s => match RANGED_RE.captures(s) {
+        Some(c) => {
+          let range = match c.get(2).map(|m| m.as_str()) {
+            Some(s) => s.parse(),
+            None => Err(
+              ParseErrorKind::BadSyntax(
+                s.into(),
+                "<type> or <type>(<range>)".into(),
+              ).into(),
+            ),
+          }?;
+
+          match c.get(1).map(|m| m.as_str()) {
+            Some("top") => Ok(SortType::Top(range)),
+            Some("controversial") => Ok(SortType::Controversial(range)),
+            Some(s) => Err(ParseErrorKind::NoMatch(s.into()).into()),
+            None => Err(
+              ParseErrorKind::BadSyntax(
+                s.into(),
+                "<type> or <type>(<range>)".into(),
+              ).into(),
+            ),
+          }
+        }
+        None => Err(ParseErrorKind::NoMatch(s.into()).into()),
+      },
+    }
   }
 }
 

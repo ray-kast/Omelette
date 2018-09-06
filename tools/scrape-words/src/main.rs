@@ -22,13 +22,15 @@ mod process_html;
 mod reddit;
 mod thread_future;
 
-use futures::{stream, Future, IntoFuture, Stream};
+use futures::{future, prelude::*, stream};
 use reddit::{
   auth::{self, AuthToken},
   client, read, request, types, AppDuration, AppInfo,
 };
 use regex::Regex;
 use std::{
+  cmp,
+  collections::HashMap,
   env,
   fs::File,
   io::{self, BufReader, BufWriter, Write},
@@ -243,8 +245,9 @@ fn main() -> Result<()> {
   let args: Vec<_> = env::args().collect();
 
   let subreddit = args[1].clone();
-  let limit: u32 = args[2].parse().unwrap();
-  let pretty: bool = args[3].parse().unwrap();
+  let sort: read::SortType = args[2].parse().unwrap();
+  let limit: u32 = args[3].parse().unwrap();
+  let pretty: bool = args[4].parse().unwrap();
 
   tokio::run(
     client::Client::new(Arc::new(ClientHooks), app, tok)
@@ -252,20 +255,81 @@ fn main() -> Result<()> {
       .and_then(move |client| {
         writeln!(io::stderr(), "listing r/{}...", subreddit).unwrap();
 
-        read::list_subreddit(
-          client.clone(),
-          subreddit,
-          read::SortType::Hot,
-          Some(limit),
-          None,
-        ).from_err()
-          .and_then(move |listing| {
+        let listings = Arc::new(Mutex::new(Vec::<types::Listing>::new()));
+
+        let client_1 = client.clone();
+        let listings_1 = listings.clone();
+
+        future::loop_fn((limit, None), move |(remain, after)| {
+          let limit = cmp::min(remain, 100);
+          let client = client_1.clone();
+          let listings = listings_1.clone();
+
+          writeln!(io::stderr(), "taking {} of {}", limit, remain).unwrap();
+
+          read::list_subreddit(
+            client.clone(),
+            subreddit.clone(),
+            sort,
+            Some(limit),
+            after,
+          ).map(move |listing| {
+            let mut listings = listings.lock().unwrap();
+            let name = listing.children[listing.children.len() - 1]
+              .as_link()
+              .name
+              .clone();
+
+            listings.push(listing);
+
+            let remain = remain - limit;
+
+            if remain > 0 {
+              future::Loop::Continue((remain, Some(name)))
+            } else {
+              future::Loop::Break(())
+            }
+          })
+        }).from_err()
+          .and_then(move |_| {
+            let links: Vec<_>;
+
+            {
+              let mut listings = listings.lock().unwrap();
+              links = listings.drain(0..).flat_map(|l| l.children).collect();
+            }
+
             writeln!(io::stderr(), "retrieving comments...").unwrap();
 
-            let tasks = listing
-              .children
-              .iter()
-              .map(|child| read::get_comments(client.clone(), child.as_link()));
+            let total = links.len();
+
+            let n = Arc::new(Mutex::new(0));
+
+            let tasks = links.iter().map(|child| {
+              let n = n.clone();
+
+              read::get_comments(client.clone(), child.as_link()).map(
+                move |(links, comments)| {
+                  {
+                    let mut n = n.lock().unwrap();
+                    *n = *n + 1;
+
+                    for link in &links.as_listing().children {
+                      write!(
+                        io::stderr(),
+                        "\r\x1b[2K  ({:4}/{:4}) {}",
+                        n,
+                        total,
+                        link.as_link().url
+                      ).unwrap();
+                      io::stderr().flush().unwrap();
+                    }
+                  }
+
+                  (links, comments)
+                },
+              )
+            });
 
             let outs = Arc::new(Mutex::new(Vec::<u8>::new()));
 
@@ -275,11 +339,24 @@ fn main() -> Result<()> {
               .collect()
               .from_err()
               .map(move |vec| {
+                writeln!(io::stderr(), "\nprocessing data...").unwrap();
+
                 let mut outs = outs.lock().unwrap();
                 let outs = outs.deref_mut(); // TODO: is there any way to do away with this?
 
-                for (links, comments) in vec.iter() {
+                let total = vec.len();
+
+                for (i, (links, comments)) in vec.iter().enumerate() {
                   for link in &links.as_listing().children {
+                    write!(
+                      io::stderr(),
+                      "\r\x1b[2K  ({:4}/{:4}) {}",
+                      i + 1,
+                      total,
+                      link.as_link().url
+                    ).unwrap();
+                    io::stderr().flush().unwrap();
+
                     match link {
                       types::Thing::Link(l) => if pretty {
                         print_link(&l, outs)
@@ -316,9 +393,11 @@ fn main() -> Result<()> {
                     write!(outs, "\n\n\n").unwrap();
                   }
                 }
+
+                writeln!(io::stderr(), "").unwrap();
               })
               .map(move |_| {
-                writeln!(io::stderr(), "printing data...").unwrap();
+                writeln!(io::stderr(), "post-processing text...").unwrap();
 
                 let outs = outs_1;
                 let mut outs = outs.lock().unwrap();
@@ -328,17 +407,43 @@ fn main() -> Result<()> {
                 // TODO: DON'T FUCKING CLONE THIS
                 let outs: Vec<_> = outs.clone();
 
-                let string = String::from_utf8(outs).unwrap();
+                let mut string = String::from_utf8(outs).unwrap();
 
                 if !pretty {
                   // TODO: apply a Unicode decomp transform
 
-                  // let string = NONWORD_RE.replace_all(&string, "");
+                  string = NONWORD_RE.replace_all(&string, "").into_owned();
 
-                  let string = WHITESPACE_RE.replace_all(&string, " ");
+                  string = string.to_lowercase();
+
+                  string = WHITESPACE_RE.replace_all(&string, " ").into_owned();
                 }
 
-                print!("{}", string);
+                let mut counts: HashMap<String, usize> = HashMap::new();
+
+                for word in WHITESPACE_RE.split(&string) {
+                  use std::collections::hash_map::Entry::*;
+
+                  match counts.entry(word.into()) {
+                    Vacant(v) => {
+                      v.insert(1);
+                    }
+                    Occupied(mut o) => {
+                      let v = o.get_mut();
+                      *v = *v + 1;
+                    }
+                  }
+                }
+
+                let mut sorted: Vec<_> = counts.iter().collect();
+
+                sorted.sort_by(|(_, a), (_, b)| b.cmp(a));
+
+                writeln!(io::stderr(), "printing data...").unwrap();
+
+                for (i, (word, count)) in sorted.iter().enumerate() {
+                  println!("#{:6} ({:6}) : {}", i + 1, count, word);
+                }
               })
           })
       })

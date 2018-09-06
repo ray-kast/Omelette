@@ -6,6 +6,7 @@ use hyper_tls;
 use serde;
 use serde_json;
 use std::{
+  cmp,
   io::{self, Write},
   string,
   sync::{Arc, Mutex},
@@ -42,6 +43,7 @@ pub type Request = http::Request<hyper::Body>;
 pub struct RatelimitData {
   remain: i32,
   reset: Instant,
+  last_update: Instant,
   lock: Arc<Mutex<()>>,
 }
 
@@ -58,6 +60,7 @@ impl Default for RatelimitData {
     RatelimitData {
       remain: -1,
       reset: Instant::now(),
+      last_update: Instant::now(),
       lock: Arc::new(Mutex::new(())),
     }
   }
@@ -101,18 +104,17 @@ pub fn request_string(
   let rl_1 = rl.clone();
   let rl_2 = rl.clone();
 
-  let uri_1 = req.uri().clone();
-
   ThreadFuture::new(move || {
-    let now = Instant::now();
-
     let sleep_time;
-    let lock;
+    let lock = {
+      let rl = rl_1.lock().unwrap();
+      rl.lock.clone()
+    };
+    let _ = lock.lock().unwrap();
 
     {
       let mut rl = rl_1.lock().unwrap();
-
-      lock = rl.lock.clone();
+      let now = Instant::now();
 
       sleep_time = if now > rl.reset || rl.remain < 0 {
         Duration::from_secs(0)
@@ -127,24 +129,18 @@ pub fn request_string(
         }
       };
 
-      if rl.remain > 0 {
-        rl.remain = rl.remain - 1;
-      }
+      rl.remain = cmp::max(0, rl.remain - 1);
+      rl.last_update = now;
     }
 
-    // TODO: this lock should probably extend further upwards in this code
-    {
-      let _ = lock.lock().unwrap();
-
-      if sleep_time > Duration::from_secs(0) {
-        writeln!(
-          io::stderr(),
-          "halting for {}s + {}ms",
-          sleep_time.as_secs(),
-          sleep_time.subsec_millis()
-        ).unwrap();
-        thread::sleep(sleep_time);
-      }
+    if sleep_time > Duration::from_secs(0) {
+      writeln!(
+        io::stderr(),
+        "halting for {}s",
+        sleep_time.as_secs() as f64
+          + sleep_time.subsec_millis() as f64 / 1000.0
+      ).unwrap();
+      thread::sleep(sleep_time);
     }
 
     Ok(())
@@ -155,50 +151,41 @@ pub fn request_string(
       .and_then(move |res| {
         let status = res.status();
 
-        // TODO: keep an eye on out-of-sync responses
-
-        // if res.headers().contains_key("x-ratelimit-remaining") {
-        //   write!(
-        //     io::stderr(),
-        //     "x-ratelimit-remaining: {}\n",
-        //     match res.headers()["x-ratelimit-remaining"].to_str() {
-        //       Ok(s) => s,
-        //       Err(_) => "<non-text>",
-        //     }
-        //   ).unwrap();
-        // }
-
-        // if res.headers().contains_key("x-ratelimit-reset") {
-        //   write!(
-        //     io::stderr(),
-        //     "x-ratelimit-reset: {}\n",
-        //     match res.headers()["x-ratelimit-reset"].to_str() {
-        //       Ok(s) => s,
-        //       Err(_) => "<non-text>",
-        //     }
-        //   ).unwrap();
-        // }
-
         {
           let mut rl = rl_2.lock().unwrap();
 
+          let now = Instant::now();
+
           if res.headers().contains_key("x-ratelimit-remaining") {
-            rl.remain = res.headers()["x-ratelimit-remaining"]
-              .to_str()
-              .unwrap()
-              .parse::<f64>()
-              .unwrap() as i32;
+            if rl.last_update < now {
+              rl.remain = res.headers()["x-ratelimit-remaining"]
+                .to_str()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap() as i32;
+            }
+
+            if rl.remain < 20 || true {
+              writeln!(io::stderr(), "x-ratelimit-remain: {}", rl.remain)
+                .unwrap();
+            }
           }
 
           if res.headers().contains_key("x-ratelimit-reset") {
-            rl.reset = Instant::now()
-              + Duration::from_secs(
-                res.headers()["x-ratelimit-reset"]
-                  .to_str()
-                  .unwrap()
-                  .parse::<f64>()
-                  .unwrap() as u64,
-              );
+            if rl.last_update < now {
+              rl.reset = now
+                + Duration::from_secs(
+                  res.headers()["x-ratelimit-reset"]
+                    .to_str()
+                    .unwrap()
+                    .parse::<f64>()
+                    .unwrap() as u64,
+                );
+            }
+          }
+
+          if rl.last_update < now {
+            rl.last_update = now;
           }
         }
 
