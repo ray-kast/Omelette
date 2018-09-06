@@ -18,6 +18,7 @@ extern crate error_chain;
 #[macro_use]
 extern crate serde_derive;
 
+mod future_semaphore;
 mod process_html;
 mod reddit;
 mod thread_future;
@@ -221,7 +222,7 @@ fn main() -> Result<()> {
     "read".split(" "),
     "linux",
     "rk1024/scrape-words",
-    "v0.2.0",
+    "v0.3.0",
     "rookie1024",
   );
 
@@ -247,10 +248,10 @@ fn main() -> Result<()> {
   let subreddit = args[1].clone();
   let sort: read::SortType = args[2].parse().unwrap();
   let limit: u32 = args[3].parse().unwrap();
-  let pretty: bool = args[4].parse().unwrap();
+  let outf = args[4].clone();
 
   tokio::run(
-    client::Client::new(Arc::new(ClientHooks), app, tok)
+    client::Client::new(Arc::new(ClientHooks), app, tok, 10)
       .from_err()
       .and_then(move |client| {
         writeln!(io::stderr(), "listing r/{}...", subreddit).unwrap();
@@ -275,18 +276,23 @@ fn main() -> Result<()> {
             after,
           ).map(move |listing| {
             let mut listings = listings.lock().unwrap();
-            let name = listing.children[listing.children.len() - 1]
-              .as_link()
-              .name
-              .clone();
 
-            listings.push(listing);
+            let len = listing.children.len();
 
-            let remain = remain - limit;
+            if len > 0 {
+              let name = listing.children[len - 1].as_link().name.clone();
 
-            if remain > 0 {
-              future::Loop::Continue((remain, Some(name)))
+              listings.push(listing);
+
+              let remain = remain - limit;
+
+              if remain > 0 {
+                future::Loop::Continue((remain, Some(name)))
+              } else {
+                future::Loop::Break(())
+              }
             } else {
+              writeln!(io::stderr(), "stopping on empty listing").unwrap();
               future::Loop::Break(())
             }
           })
@@ -333,6 +339,8 @@ fn main() -> Result<()> {
 
             let outs = Arc::new(Mutex::new(Vec::<u8>::new()));
 
+            let mut pretty_outs = File::create(outf).unwrap();
+
             let outs_1 = outs.clone();
 
             stream::futures_ordered(tasks)
@@ -358,40 +366,32 @@ fn main() -> Result<()> {
                     io::stderr().flush().unwrap();
 
                     match link {
-                      types::Thing::Link(l) => if pretty {
-                        print_link(&l, outs)
-                      } else {
-                        dump_link(&l, outs)
-                      }.unwrap(),
-                      _ => if pretty {
-                        writeln!(outs, "## <unexpected Thing>").unwrap()
-                      } else {
-                        writeln!(outs, "<unexpected Thing>").unwrap()
-                      },
+                      types::Thing::Link(l) => {
+                        print_link(&l, &mut pretty_outs).unwrap();
+                        dump_link(&l, outs).unwrap();
+                      }
+                      _ => {
+                        writeln!(pretty_outs, "## <unexpected Thing>").unwrap()
+                      }
                     }
                   }
 
                   for comment in &comments.as_listing().children {
                     match comment {
-                      types::Thing::Comment(c) => if pretty {
-                        print_comment(&c, "  ", outs)
-                      } else {
-                        dump_comment(&c, outs)
-                      }.unwrap(),
-                      types::Thing::More(_) => if pretty {
-                        writeln!(outs, "  ...").unwrap()
-                      },
-                      _ => if pretty {
-                        writeln!(outs, "  <unexpected Thing>").unwrap()
-                      } else {
-                        writeln!(outs, "<unexpected Thing>").unwrap()
-                      },
+                      types::Thing::Comment(c) => {
+                        print_comment(&c, "  ", &mut pretty_outs).unwrap();
+                        dump_comment(&c, outs).unwrap();
+                      }
+                      types::Thing::More(_) => {
+                        writeln!(pretty_outs, "  ...").unwrap()
+                      }
+                      _ => {
+                        writeln!(pretty_outs, "  <unexpected Thing>").unwrap()
+                      }
                     }
                   }
 
-                  if pretty {
-                    write!(outs, "\n\n\n").unwrap();
-                  }
+                  write!(pretty_outs, "\n\n\n").unwrap();
                 }
 
                 writeln!(io::stderr(), "").unwrap();
@@ -407,19 +407,28 @@ fn main() -> Result<()> {
                 // TODO: DON'T FUCKING CLONE THIS
                 let outs: Vec<_> = outs.clone();
 
+                writeln!(io::stderr(), "  decoding UTF-8...").unwrap();
+
                 let mut string = String::from_utf8(outs).unwrap();
 
-                if !pretty {
-                  // TODO: apply a Unicode decomp transform
+                // TODO: apply a Unicode decomp transform
 
-                  string = NONWORD_RE.replace_all(&string, "").into_owned();
+                writeln!(io::stderr(), "  stripping nonword chars...").unwrap();
 
-                  string = string.to_lowercase();
+                string = NONWORD_RE.replace_all(&string, "").into_owned();
 
-                  string = WHITESPACE_RE.replace_all(&string, " ").into_owned();
-                }
+                writeln!(io::stderr(), "  converting to lowercase...").unwrap();
+
+                string = string.to_lowercase();
+
+                writeln!(io::stderr(), "  normalizing whitespace...").unwrap();
+
+                string = WHITESPACE_RE.replace_all(&string, " ").into_owned();
 
                 let mut counts: HashMap<String, usize> = HashMap::new();
+
+                writeln!(io::stderr(), "  performing frequency analysis...")
+                  .unwrap();
 
                 for word in WHITESPACE_RE.split(&string) {
                   use std::collections::hash_map::Entry::*;
@@ -434,6 +443,8 @@ fn main() -> Result<()> {
                     }
                   }
                 }
+
+                writeln!(io::stderr(), "  finalizing...").unwrap();
 
                 let mut sorted: Vec<_> = counts.iter().collect();
 

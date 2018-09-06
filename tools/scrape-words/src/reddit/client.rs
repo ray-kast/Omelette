@@ -45,14 +45,15 @@ impl Client {
     hooks: ClientHookObject,
     app: app_info::RcAppInfo,
     tok: Option<auth::AuthToken>,
+    concurrency: usize
   ) -> impl Future<Item = RcClient, Error = Error> {
     request::create_client_rc()
       .into_future()
       .from_err()
-      .and_then(|client| {
+      .and_then(move |client| {
         let hooks_1 = hooks.clone();
 
-        let rl = request::RatelimitData::new_rc();
+        let rl = request::RatelimitData::new_rc(concurrency);
 
         auth::authenticate(
           app.clone(),
