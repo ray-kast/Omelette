@@ -360,9 +360,9 @@ pub struct Link {
   pub thumbnail_width: Option<u32>,
   pub thumbnail_height: Option<u32>,
   pub preview: Option<LinkPreview>,
-  pub media: serde_value::Value,                               // TODO
-  pub media_embed: HashMap<String, serde_value::Value>,        // TODO
-  pub secure_media: serde_value::Value,                        // TODO
+  pub media: serde_value::Value, // TODO
+  pub media_embed: HashMap<String, serde_value::Value>, // TODO
+  pub secure_media: serde_value::Value, // TODO
   pub secure_media_embed: HashMap<String, serde_value::Value>, // TODO
 
   // Stats
@@ -462,6 +462,62 @@ struct ThingVisitor;
 // TODO: implement TryInto for Thing
 
 impl Thing {
+  pub fn as_listing(&self) -> &Listing {
+    if let Thing::Listing(ref r) = self {
+      r
+    } else {
+      panic!("bad variant for enum Thing, expected Listing");
+    }
+  }
+
+  pub fn as_comment(&self) -> &Comment {
+    if let Thing::Comment(ref r) = self {
+      r
+    } else {
+      panic!("bad variant for enum Thing, expected Comment");
+    }
+  }
+
+  pub fn as_account(&self) -> &Account {
+    if let Thing::Account(ref r) = self {
+      r
+    } else {
+      panic!("bad variant for enum Thing, expected Account");
+    }
+  }
+
+  pub fn as_link(&self) -> &Link {
+    if let Thing::Link(ref r) = self {
+      r
+    } else {
+      panic!("bad variant for enum Thing, expected Link");
+    }
+  }
+
+  pub fn as_message(&self) -> &Message {
+    if let Thing::Message(ref r) = self {
+      r
+    } else {
+      panic!("bad variant for enum Thing, expected Message");
+    }
+  }
+
+  pub fn as_subreddit(&self) -> &Subreddit {
+    if let Thing::Subreddit(ref r) = self {
+      r
+    } else {
+      panic!("bad variant for enum Thing, expected Subreddit");
+    }
+  }
+
+  pub fn as_award(&self) -> &Award {
+    if let Thing::Award(ref r) = self {
+      r
+    } else {
+      panic!("bad variant for enum Thing, expected Award");
+    }
+  }
+
   pub fn into_listing(self) -> Listing {
     if let Thing::Listing(r) = self {
       r
@@ -671,11 +727,9 @@ impl<'de> de::Visitor<'de> for ThingVisitor {
                       <A::Error as de::Error>::custom(e.to_string())
                     })?)
                   }
-                  Kind::More => {
-                    Thing::More(data.deserialize_into().map_err(|e| {
-                      <A::Error as de::Error>::custom(e.to_string())
-                    })?)
-                  }
+                  Kind::More => Thing::More(data.deserialize_into().map_err(
+                    |e| <A::Error as de::Error>::custom(e.to_string()),
+                  )?),
                 });
               }
               s => {

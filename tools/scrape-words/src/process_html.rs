@@ -149,27 +149,38 @@ pub fn pretty_unwrap(html: &str) -> Result<String> {
   enum VisitState {
     BeginLine,
     MidLine,
+    EndBlock,
   }
 
   fn visit_elt(el: &Element, state: VisitState) -> (String, VisitState) {
     match el {
-      Element::Text(s) => {
-        match state {
-          VisitState::BeginLine => {
-            let trimmed = s.trim_left();
+      Element::Text(s) => match state {
+        VisitState::BeginLine => {
+          let trimmed = s.trim_left();
 
-            (
-              trimmed.into(),
-              if trimmed.len() > 0 {
-                VisitState::MidLine
-              } else {
-                VisitState::BeginLine
-              },
-            )
-          }
-          VisitState::MidLine => (s.clone(), VisitState::MidLine),
+          (
+            trimmed.into(),
+            if trimmed.len() > 0 {
+              VisitState::MidLine
+            } else {
+              VisitState::BeginLine
+            },
+          )
         }
-      }
+        VisitState::MidLine => (s.clone(), VisitState::MidLine),
+        VisitState::EndBlock => {
+          let trimmed = s.trim_left();
+
+          (
+            format!("\n{}", trimmed),
+            if trimmed.len() > 0 {
+              VisitState::MidLine
+            } else {
+              VisitState::BeginLine
+            },
+          )
+        }
+      },
       Element::Node(t, c) => {
         let mut children: Vec<String> = Vec::new();
 
@@ -180,11 +191,19 @@ pub fn pretty_unwrap(html: &str) -> Result<String> {
             match state {
               VisitState::BeginLine => (),
               VisitState::MidLine => children.push("\n".into()),
+              VisitState::EndBlock => children.push("\n".into()),
             }
 
             state = VisitState::BeginLine;
           }
-          NodeType::Inline => (),
+          NodeType::Inline => match state {
+            VisitState::BeginLine => (),
+            VisitState::MidLine => (),
+            VisitState::EndBlock => {
+              children.push("\n".into());
+              state = VisitState::BeginLine;
+            }
+          },
           NodeType::Meta => (),
           NodeType::Unknown(s) => children.push(format!("<{}> ", s)),
         }
@@ -195,6 +214,13 @@ pub fn pretty_unwrap(html: &str) -> Result<String> {
           children.push(s);
 
           state = new_state;
+        }
+
+        match t {
+          NodeType::Block => state = VisitState::EndBlock,
+          NodeType::Inline => (),
+          NodeType::Meta => (),
+          NodeType::Unknown(_) => (),
         }
 
         // TODO: this is very not right, but it works well enough and I

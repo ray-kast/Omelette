@@ -83,8 +83,8 @@ where
         None => {
           shared.awaiter = Some(task::current());
           Some(shared.bar.clone())
-        },
-        _ => None
+        }
+        _ => None,
       }
     } {
       bar.wait();

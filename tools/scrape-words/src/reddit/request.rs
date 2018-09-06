@@ -157,27 +157,27 @@ pub fn request_string(
 
         // TODO: keep an eye on out-of-sync responses
 
-        if res.headers().contains_key("x-ratelimit-remaining") {
-          write!(
-            io::stderr(),
-            "x-ratelimit-remaining: {}\n",
-            match res.headers()["x-ratelimit-remaining"].to_str() {
-              Ok(s) => s,
-              Err(_) => "<non-text>",
-            }
-          ).unwrap();
-        }
+        // if res.headers().contains_key("x-ratelimit-remaining") {
+        //   write!(
+        //     io::stderr(),
+        //     "x-ratelimit-remaining: {}\n",
+        //     match res.headers()["x-ratelimit-remaining"].to_str() {
+        //       Ok(s) => s,
+        //       Err(_) => "<non-text>",
+        //     }
+        //   ).unwrap();
+        // }
 
-        if res.headers().contains_key("x-ratelimit-reset") {
-          write!(
-            io::stderr(),
-            "x-ratelimit-reset: {}\n",
-            match res.headers()["x-ratelimit-reset"].to_str() {
-              Ok(s) => s,
-              Err(_) => "<non-text>",
-            }
-          ).unwrap();
-        }
+        // if res.headers().contains_key("x-ratelimit-reset") {
+        //   write!(
+        //     io::stderr(),
+        //     "x-ratelimit-reset: {}\n",
+        //     match res.headers()["x-ratelimit-reset"].to_str() {
+        //       Ok(s) => s,
+        //       Err(_) => "<non-text>",
+        //     }
+        //   ).unwrap();
+        // }
 
         {
           let mut rl = rl_2.lock().unwrap();

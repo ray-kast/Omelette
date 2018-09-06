@@ -29,9 +29,11 @@ use reddit::{
 };
 use regex::Regex;
 use std::{
+  env,
   fs::File,
   io::{self, BufReader, BufWriter, Write},
-  sync::Arc,
+  ops::DerefMut,
+  sync::{Arc, Mutex},
 };
 
 // TODO: I should probably consolidate reddit::*::Error
@@ -146,8 +148,8 @@ where
 
   match &comment.replies {
     types::CommentReplies::Some(l) => {
-      let l = l.clone().into_listing();
-      for reply in l.children {
+      let l = l.as_listing();
+      for reply in &l.children {
         match reply {
           types::Thing::Comment(c) => {
             print_comment(&c, &format!("{}  ", indent), outs)?
@@ -188,8 +190,8 @@ where
 
   match &comment.replies {
     types::CommentReplies::Some(l) => {
-      let l = l.clone().into_listing();
-      for reply in l.children {
+      let l = l.as_listing();
+      for reply in &l.children {
         match reply {
           types::Thing::Comment(c) => dump_comment(&c, outs)?,
           types::Thing::More(_) => (),
@@ -236,128 +238,48 @@ fn main() -> Result<()> {
     }
   };
 
+  writeln!(io::stderr(), "initializing...").unwrap();
+
+  let args: Vec<_> = env::args().collect();
+
+  let subreddit = args[1].clone();
+  let limit: u32 = args[2].parse().unwrap();
+  let pretty: bool = args[3].parse().unwrap();
+
   tokio::run(
     client::Client::new(Arc::new(ClientHooks), app, tok)
       .from_err()
-      .and_then(|client| {
+      .and_then(move |client| {
+        writeln!(io::stderr(), "listing r/{}...", subreddit).unwrap();
+
         read::list_subreddit(
           client.clone(),
-          "copypasta".into(),
+          subreddit,
           read::SortType::Hot,
-          Some(100),
+          Some(limit),
           None,
         ).from_err()
           .and_then(move |listing| {
-            writeln!(io::stderr(), "scheduling requests...").unwrap();
+            writeln!(io::stderr(), "retrieving comments...").unwrap();
 
-            let tasks = listing.children.iter().map(|child| {
-              read::get_comments(client.clone(), &child.clone().into_link())
-            });
+            let tasks = listing
+              .children
+              .iter()
+              .map(|child| read::get_comments(client.clone(), child.as_link()));
 
-            writeln!(io::stderr(), "requests scheduled").unwrap();
+            let outs = Arc::new(Mutex::new(Vec::<u8>::new()));
+
+            let outs_1 = outs.clone();
 
             stream::futures_ordered(tasks)
               .collect()
               .from_err()
-              .map(move |v| {})
-          })
-      })
-      .map(|_| ())
-      .map_err(|e: Error| {
-        writeln!(io::stderr(), "an error occurred: {}", e).unwrap();
-      }),
-  );
-
-  Ok(())
-}
-
-/* fn main() {
-  tokio::run(future::lazy(move || {
-    let client = request::create_client_rc().unwrap();
-
-    let outs = Arc::new(Mutex::new(Vec::<u8>::new()));
-
-    let outs_1 = outs.clone();
-    let outs_2 = outs.clone();
-
-    let app_1 = app.clone();
-    let app_2 = app.clone();
-    let client_1 = client.clone();
-    let client_2 = client.clone();
-
-    let args = std::env::args().collect::<Vec<_>>();
-
-    let subreddit = args[1].clone();
-    let limit: u32 = args[2].parse().unwrap();
-    let pretty: bool = args[3].parse().unwrap();
-
-    let pretty_1 = pretty.clone();
-
-    writeln!(io::stderr(), "authenticating...").unwrap();
-
-    auth::authenticate(app.clone(), client, tok, || "uwu")
-      .from_err()
-      .and_then(move |tok| {
-        let tok_1 = tok.clone();
-        let tok_2 = tok.clone();
-
-        writeln!(io::stderr(), "saving apitok.json...").unwrap();
-
-        File::create("etc/apitok.json")
-          .into_future()
-          .from_err()
-          .and_then(|file| {
-            let file = BufWriter::new(file);
-
-            serde_json::to_writer(file, tok.as_ref())
-              .into_future()
-              .map(|_| tok)
-              .from_err()
-          })
-          .and_then(move |_| {
-            let app = app_1;
-            let tok = tok_1;
-            let client = client_1;
-
-            writeln!(io::stderr(), "listing r/{}...", subreddit).unwrap();
-
-            read::list_subreddit(
-              app.clone(),
-              tok.clone(),
-              client.clone(),
-              subreddit,
-              // read::SortType::Top(read::SortRange::All),
-              read::SortType::Hot,
-              Some(limit), // TODO
-              None,
-            ).from_err()
-          })
-          .and_then(move |listing| {
-            let app = app_2;
-            let tok = tok_2;
-            let client = client_2;
-
-            writeln!(io::stderr(), "retrieving comments...").unwrap();
-
-            let tasks = listing.children.iter().map(|child| {
-              read::get_comments(
-                app.clone(),
-                tok.clone(),
-                client.clone(),
-                &child.clone().into_link(),
-              )
-            });
-
-            futures::stream::futures_ordered(tasks)
-              .collect()
-              .from_err()
-              .map(move |v| {
-                let outs = outs_1;
+              .map(move |vec| {
                 let mut outs = outs.lock().unwrap();
-                let outs = outs.deref_mut();
+                let outs = outs.deref_mut(); // TODO: is there any way to do away with this?
 
-                for (links, comments) in v.iter() {
-                  for link in links.clone().into_listing().children.iter() {
+                for (links, comments) in vec.iter() {
+                  for link in &links.as_listing().children {
                     match link {
                       types::Thing::Link(l) => if pretty {
                         print_link(&l, outs)
@@ -372,8 +294,7 @@ fn main() -> Result<()> {
                     }
                   }
 
-                  for comment in comments.clone().into_listing().children.iter()
-                  {
+                  for comment in &comments.as_listing().children {
                     match comment {
                       types::Thing::Comment(c) => if pretty {
                         print_comment(&c, "  ", outs)
@@ -396,36 +317,35 @@ fn main() -> Result<()> {
                   }
                 }
               })
-          })
-          .and_then(move |_| {
-            let pretty = pretty_1;
-            writeln!(io::stderr(), "printing data...").unwrap();
+              .map(move |_| {
+                writeln!(io::stderr(), "printing data...").unwrap();
 
-            let outs = outs_2;
-            let mut outs = outs.lock().unwrap();
-            // TODO: STOP ABUSING INTERNAL MUTABILITY
-            let outs = outs.deref_mut();
+                let outs = outs_1;
+                let mut outs = outs.lock().unwrap();
+                // TODO: STOP ABUSING INTERNAL MUTABILITY
+                let outs = outs.deref_mut();
 
-            // TODO: DON'T FUCKING CLONE THIS
-            let outs: Vec<_> = outs.clone();
+                // TODO: DON'T FUCKING CLONE THIS
+                let outs: Vec<_> = outs.clone();
 
-            let string = String::from_utf8(outs).unwrap();
+                let string = String::from_utf8(outs).unwrap();
 
-            if !pretty {
-              // TODO: apply a Unicode decomp transform
+                if !pretty {
+                  // TODO: apply a Unicode decomp transform
 
-              // let string = NONWORD_RE.replace_all(&string, "");
+                  // let string = NONWORD_RE.replace_all(&string, "");
 
-              let string = WHITESPACE_RE.replace_all(&string, " ");
-            }
+                  let string = WHITESPACE_RE.replace_all(&string, " ");
+                }
 
-            print!("{}", string);
-
-            Ok(()).into_future()
+                print!("{}", string);
+              })
           })
       })
       .map_err(|e: Error| {
-        writeln!(io::stderr(), "encountered an error: {}", e).unwrap()
-      }) // TODO: make this less vague
-  }));
-} */
+        writeln!(io::stderr(), "an error occurred: {}", e).unwrap();
+      }),
+  );
+
+  Ok(())
+}
