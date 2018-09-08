@@ -7,7 +7,6 @@ use hyper_tls;
 use serde;
 use serde_json;
 use std::{
-  cmp,
   io::{self, Write},
   string,
   sync::{Arc, Mutex},
@@ -224,7 +223,7 @@ pub fn request_string(
               .map(move |s| (s, status))
           })
           .and_then(|(string, status)| {
-            let guard = guard;
+            let _guard = guard;
             match status {
               http::StatusCode::OK => future::ok(string),
               s => future::err(ErrorKind::BadStatus(s, string).into()),

@@ -1,10 +1,11 @@
-use super::{auth::RcAuthToken, client::RcClient, request, types, RcAppInfo};
+use super::{client::RcClient, request, types};
 use futures::{Future, IntoFuture};
 use http;
 use hyper;
 use regex::Regex;
 use std::str::FromStr;
 use url::{form_urlencoded, percent_encoding};
+use {ParseError, ParseErrorKind, ParseResult};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SortRange {
@@ -33,23 +34,6 @@ error_chain!{
 
   foreign_links {
     Http(http::Error);
-  }
-}
-
-error_chain! {
-  types {
-    ParseError, ParseErrorKind, ParseResultExt, ParseResult;
-  }
-
-  errors {
-    NoMatch(s: String) {
-      description("string matched nothing"),
-      display("string '{}' matched nothing", s),
-    }
-    BadSyntax(s: String, expecting: String) {
-      description("bad syntax"),
-      display("bad syntax for '{}', expecting {}", s, expecting),
-    }
   }
 }
 

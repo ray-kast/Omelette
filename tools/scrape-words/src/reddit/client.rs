@@ -45,7 +45,7 @@ impl Client {
     hooks: ClientHookObject,
     app: app_info::RcAppInfo,
     tok: Option<auth::AuthToken>,
-    concurrency: usize
+    concurrency: usize,
   ) -> impl Future<Item = RcClient, Error = Error> {
     request::create_client_rc()
       .into_future()
