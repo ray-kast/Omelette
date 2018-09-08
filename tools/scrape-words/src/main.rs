@@ -9,6 +9,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate serde_value;
 extern crate tokio;
+extern crate unicode_normalization;
 extern crate url;
 
 #[macro_use]
@@ -31,13 +32,15 @@ use reddit::{
 use regex::Regex;
 use std::{
   cmp,
-  collections::HashMap,
+  collections::{BTreeSet, HashMap},
   env,
   fs::File,
   io::{self, BufReader, BufWriter, Write},
   ops::DerefMut,
+  string,
   sync::{Arc, Mutex},
 };
+use unicode_normalization::UnicodeNormalization;
 
 // TODO: I should probably consolidate reddit::*::Error
 error_chain! {
@@ -51,6 +54,7 @@ error_chain! {
   }
 
   foreign_links {
+    FromUtf8(string::FromUtf8Error);
     Io(io::Error);
     Serde(serde_json::Error);
   }
@@ -91,7 +95,15 @@ impl client::ClientHooks for ClientHooks {
 lazy_static! {
   static ref NEWLINE_RE: Regex = Regex::new(r"(\n+)").unwrap();
   static ref WHITESPACE_RE: Regex = Regex::new(r"\s+").unwrap();
-  static ref NONWORD_RE: Regex = Regex::new(r"[\W--\s]+").unwrap();
+  static ref DROP_RE: Regex =
+    Regex::new(r"^[\p{N}\p{M}\p{P}\p{Z}\p{C}]*$").unwrap();
+  // static ref NONWORD_RE: Regex = Regex::new(r"[\W--\s]+").unwrap();
+  static ref NONWORD_TRIM_RE: Regex =
+    Regex::new(r"(^[\W--\s]+|[\W--\s]+$)").unwrap();
+  static ref NONWORD_STRIP_RE: Regex =
+    Regex::new(r"[\p{M}\p{Ps}\p{Pe}\p{Pi}\p{Pf}\p{Po}\p{C}--/]").unwrap();
+  static ref DEFER_SPLIT_RE: Regex =
+    Regex::new(r"[/\p{Pc}\p{Pd}\p{Z}]").unwrap();
 }
 
 fn get_body_string(html: &str) -> Result<String> {
@@ -208,6 +220,179 @@ where
   Ok(())
 }
 
+fn postprocess_words(outs: Vec<u8>, outf: &str) -> Result<()> {
+  writeln!(io::stderr(), "post-processing text...")?;
+
+  writeln!(io::stderr(), "  decoding UTF-8...")?;
+  let mut string = String::from_utf8(outs)?;
+
+  writeln!(io::stderr(), "  applying NFKD decomp...")?;
+  string = string.nfkd().collect();
+
+  writeln!(io::stderr(), "  converting to lowercase...")?;
+  string = string.to_lowercase();
+
+  writeln!(io::stderr(), "  normalizing whitespace...")?;
+  string = WHITESPACE_RE.replace_all(&string, " ").into_owned();
+
+  let mut forms: HashMap<String, BTreeSet<String>> = HashMap::new();
+  let mut counts: HashMap<String, usize> = HashMap::new();
+  let mut defer: HashMap<String, usize> = HashMap::new();
+
+  writeln!(io::stderr(), "  performing frequency analysis...")?;
+
+  for word in WHITESPACE_RE.split(&string) {
+    use std::collections::hash_map::Entry::*;
+
+    let mut norm = NONWORD_TRIM_RE.replace_all(word, "").into_owned();
+    norm = NONWORD_STRIP_RE.replace_all(&norm, "").into_owned();
+
+    match forms.entry(norm.clone()) {
+      Vacant(v) => {
+        v.insert(BTreeSet::new()).insert(word.into());
+      }
+      Occupied(mut o) => {
+        o.get_mut().insert(word.into());
+      }
+    }
+
+    if norm.len() == 0 {
+      continue;
+    }
+
+    if DROP_RE.is_match(&norm) {
+      writeln!(io::stdout(), "  DROP {:?}", norm)?;
+
+      continue;
+    }
+
+    if DEFER_SPLIT_RE.is_match(&norm) {
+      match defer.entry(norm.into()) {
+        Vacant(v) => {
+          writeln!(io::stdout(), "    deferring {:?}", v.key())?;
+          v.insert(1);
+        }
+        Occupied(mut o) => {
+          let v = o.get_mut();
+          *v = *v + 1;
+        }
+      }
+    } else {
+      match counts.entry(norm.into()) {
+        Vacant(v) => {
+          v.insert(1);
+        }
+        Occupied(mut o) => {
+          let v = o.get_mut();
+          *v = *v + 1;
+        }
+      }
+    }
+  }
+
+  writeln!(io::stderr(), "  processing deferred words...")?;
+
+  let mut defer_counts: HashMap<String, usize> = HashMap::new();
+
+  {
+    #[derive(Debug)]
+    enum Action {
+      Split,
+      Leave,
+      Reintroduce,
+    }
+
+    let mut actions: HashMap<String, Action> = HashMap::new();
+
+    for (word, count) in defer.iter() {
+      use std::collections::hash_map::Entry::*;
+
+      let count = *count;
+
+      let split: Vec<_> = DEFER_SPLIT_RE.split(&word).collect();
+
+      // TODO: remove duplicate code
+
+      if split.iter().all(|e| {
+        let e = e.to_string(); // TODO: don't clone this
+        counts.get(&e).unwrap_or(&0) + defer.get(&e).unwrap_or(&0) >= count
+      }) {
+        actions.insert(word.clone(), Action::Split);
+
+        for word in split {
+          match defer_counts.entry(word.into()) {
+            Vacant(v) => {
+              v.insert(count);
+            }
+            Occupied(mut o) => {
+              let v = o.get_mut();
+              *v = *v + count;
+            }
+          }
+        }
+      } else {
+        actions.insert(word.clone(), Action::Leave);
+
+        match defer_counts.entry(word.clone()) {
+          Vacant(v) => {
+            v.insert(count);
+          }
+          Occupied(mut o) => {
+            let v = o.get_mut();
+            *v = *v + count;
+          }
+        }
+      }
+    }
+
+    let mut sorted: Vec<_> = actions.iter().collect();
+
+    sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+    for (word, action) in sorted {
+      writeln!(io::stdout(), "{:16} {}", format!("{:?}", action), word)?;
+    }
+  }
+
+  writeln!(io::stderr(), "  collating deferred words...")?;
+
+  for (word, count) in defer_counts {
+    use std::collections::hash_map::Entry::*;
+
+    match counts.entry(word.into()) {
+      Vacant(v) => {
+        v.insert(count);
+      }
+      Occupied(mut o) => {
+        let v = o.get_mut();
+        *v = *v + count;
+      }
+    }
+  }
+
+  writeln!(io::stderr(), "  finalizing...")?;
+
+  let mut sorted: Vec<_> = counts.iter().collect();
+
+  sorted.sort_by(|(_, a), (_, b)| b.cmp(a));
+
+  writeln!(io::stderr(), "printing data...")?;
+
+  let mut outs = File::create(outf)?;
+
+  for (i, (word, count)) in sorted.iter().enumerate() {
+    writeln!(outs, "#{0:6} ({1:6}) : {2:32} ({2:?})", i + 1, count, word)?;
+
+    if let Some(f) = forms.get(*word) {
+      for form in f.iter().filter(|f| f != word) {
+        writeln!(outs, " -- {0:32} ({0:?})", form)?;
+      }
+    }
+  }
+
+  Ok(())
+}
+
 fn main() -> Result<()> {
   let id = {
     let file = File::open("etc/apikey.json")?;
@@ -248,7 +433,8 @@ fn main() -> Result<()> {
   let subreddit = args[1].clone();
   let sort: read::SortType = args[2].parse().unwrap();
   let limit: u32 = args[3].parse().unwrap();
-  let outf = args[4].clone();
+  let pretty_outf = args[4].clone();
+  let outf = args[5].clone();
 
   tokio::run(
     client::Client::new(Arc::new(ClientHooks), app, tok, 10)
@@ -337,9 +523,9 @@ fn main() -> Result<()> {
               )
             });
 
-            let outs = Arc::new(Mutex::new(Vec::<u8>::new()));
+            let outs = Arc::new(Mutex::new(Some(Vec::<u8>::new())));
 
-            let mut pretty_outs = File::create(outf).unwrap();
+            let mut pretty_outs = File::create(pretty_outf).unwrap();
 
             let outs_1 = outs.clone();
 
@@ -350,7 +536,7 @@ fn main() -> Result<()> {
                 writeln!(io::stderr(), "\nprocessing data...").unwrap();
 
                 let mut outs = outs.lock().unwrap();
-                let outs = outs.deref_mut(); // TODO: is there any way to do away with this?
+                let outs = outs.as_mut().unwrap();
 
                 let total = vec.len();
 
@@ -397,64 +583,11 @@ fn main() -> Result<()> {
                 writeln!(io::stderr(), "").unwrap();
               })
               .map(move |_| {
-                writeln!(io::stderr(), "post-processing text...").unwrap();
-
                 let outs = outs_1;
                 let mut outs = outs.lock().unwrap();
-                // TODO: STOP ABUSING INTERNAL MUTABILITY
-                let outs = outs.deref_mut();
+                let outs = outs.take().unwrap();
 
-                // TODO: DON'T FUCKING CLONE THIS
-                let outs: Vec<_> = outs.clone();
-
-                writeln!(io::stderr(), "  decoding UTF-8...").unwrap();
-
-                let mut string = String::from_utf8(outs).unwrap();
-
-                // TODO: apply a Unicode decomp transform
-
-                writeln!(io::stderr(), "  stripping nonword chars...").unwrap();
-
-                string = NONWORD_RE.replace_all(&string, "").into_owned();
-
-                writeln!(io::stderr(), "  converting to lowercase...").unwrap();
-
-                string = string.to_lowercase();
-
-                writeln!(io::stderr(), "  normalizing whitespace...").unwrap();
-
-                string = WHITESPACE_RE.replace_all(&string, " ").into_owned();
-
-                let mut counts: HashMap<String, usize> = HashMap::new();
-
-                writeln!(io::stderr(), "  performing frequency analysis...")
-                  .unwrap();
-
-                for word in WHITESPACE_RE.split(&string) {
-                  use std::collections::hash_map::Entry::*;
-
-                  match counts.entry(word.into()) {
-                    Vacant(v) => {
-                      v.insert(1);
-                    }
-                    Occupied(mut o) => {
-                      let v = o.get_mut();
-                      *v = *v + 1;
-                    }
-                  }
-                }
-
-                writeln!(io::stderr(), "  finalizing...").unwrap();
-
-                let mut sorted: Vec<_> = counts.iter().collect();
-
-                sorted.sort_by(|(_, a), (_, b)| b.cmp(a));
-
-                writeln!(io::stderr(), "printing data...").unwrap();
-
-                for (i, (word, count)) in sorted.iter().enumerate() {
-                  println!("#{:6} ({:6}) : {}", i + 1, count, word);
-                }
+                postprocess_words(outs, &outf).unwrap();
               })
           })
       })
