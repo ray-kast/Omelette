@@ -32,56 +32,66 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
   let mut counts: HashMap<String, usize> = HashMap::new();
   let mut defer: HashMap<String, usize> = HashMap::new();
 
+  let mut dropped: BTreeSet<String> = BTreeSet::new();
+
   writeln!(io::stderr(), "  performing frequency analysis...")?;
 
-  for word in WHITESPACE_RE.split(&string) {
+  fn tick(map: &mut HashMap<String, usize>, word: String, count: usize) {
     use std::collections::hash_map::Entry::*;
 
+    match map.entry(word) {
+      Vacant(v) => {
+        v.insert(count);
+      }
+      Occupied(mut o) => {
+        let v = o.get_mut();
+        *v = *v + count;
+      }
+    }
+  }
+
+  fn tick_set(
+    map: &mut HashMap<String, BTreeSet<String>>,
+    word: String,
+    entry: String,
+  ) {
+    use std::collections::hash_map::Entry::*;
+
+    match map.entry(word) {
+      Vacant(v) => {
+        v.insert(BTreeSet::new()).insert(entry);
+      }
+      Occupied(mut o) => {
+        o.get_mut().insert(entry);
+      }
+    }
+  }
+
+  fn normalize_word(word: &str) -> String {
     let mut norm = NONWORD_TRIM_RE.replace_all(word, "").into_owned();
     norm = NONWORD_STRIP_RE.replace_all(&norm, "").into_owned();
 
-    norm = norm.to_lowercase();
+    norm.to_lowercase()
+  }
 
-    match forms.entry(norm.clone()) {
-      Vacant(v) => {
-        v.insert(BTreeSet::new()).insert(word.into());
-      }
-      Occupied(mut o) => {
-        o.get_mut().insert(word.into());
-      }
-    }
+  fn should_drop(word: &str) -> bool {
+    word.len() == 0 || DROP_RE.is_match(word)
+  }
 
-    if norm.len() == 0 {
-      continue;
-    }
-
-    if DROP_RE.is_match(&norm) {
-      writeln!(io::stdout(), "  DROP {:?}", norm)?;
+  for word in WHITESPACE_RE.split(&string) {
+    if DEFER_SPLIT_RE.is_match(&word) {
+      tick(&mut defer, word.into(), 1);
 
       continue;
     }
 
-    if DEFER_SPLIT_RE.is_match(&norm) {
-      match defer.entry(norm.into()) {
-        Vacant(v) => {
-          writeln!(io::stdout(), "    deferring {:?}", v.key())?;
-          v.insert(1);
-        }
-        Occupied(mut o) => {
-          let v = o.get_mut();
-          *v = *v + 1;
-        }
-      }
+    let norm = normalize_word(word);
+
+    if !should_drop(&norm) {
+      tick_set(&mut forms, norm.clone(), word.into());
+      tick(&mut counts, norm.into(), 1);
     } else {
-      match counts.entry(norm.into()) {
-        Vacant(v) => {
-          v.insert(1);
-        }
-        Occupied(mut o) => {
-          let v = o.get_mut();
-          *v = *v + 1;
-        }
-      }
+      dropped.insert(word.into());
     }
   }
 
@@ -100,59 +110,55 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
     let mut actions: HashMap<String, Action> = HashMap::new();
 
     for (word, count) in defer.iter() {
-      use std::collections::hash_map::Entry::*;
-
       let count = *count;
 
       let split: Vec<_> = DEFER_SPLIT_RE.split(&word).collect();
 
       let trimmed;
 
-      // TODO: remove duplicate code
-
+      // TODO: pick the most favorable action, not the first that matches
       if split.iter().all(|e| {
-        let e = e.to_string(); // TODO: don't clone this
-        counts.get(&e).unwrap_or(&0) + defer.get(&e).unwrap_or(&0) >= count
+        let norm = normalize_word(e);
+        should_drop(&norm)
+          || (norm.len() >= 2 && counts.get(&norm).unwrap_or(&0) >= &count)
       }) {
         actions.insert(word.clone(), Action::Split);
 
         for word in split {
-          match defer_counts.entry(word.into()) {
-            Vacant(v) => {
-              v.insert(count);
-            }
-            Occupied(mut o) => {
-              let v = o.get_mut();
-              *v = *v + count;
-            }
+          let norm = normalize_word(word);
+
+          if !should_drop(&norm) {
+            tick_set(&mut forms, norm.clone(), word.into());
+
+            tick(&mut defer_counts, norm, count);
+          } else {
+            dropped.insert(word.into());
           }
         }
       } else if {
-        trimmed = split.concat();
+        trimmed = normalize_word(&split.concat());
         counts.get(&trimmed).unwrap_or(&0) > &count
       } {
         actions.insert(word.clone(), Action::Trim);
 
-        match defer_counts.entry(trimmed) {
-          Vacant(v) => {
-            v.insert(count);
-          }
-          Occupied(mut o) => {
-            let v = o.get_mut();
-            *v = *v + count;
-          }
+        if !should_drop(&trimmed) {
+          tick_set(&mut forms, trimmed.clone(), word.clone());
+
+          tick(&mut defer_counts, trimmed, count);
+        } else {
+          dropped.insert(word.clone());
         }
       } else {
         actions.insert(word.clone(), Action::Concat);
 
-        match defer_counts.entry(word.clone()) {
-          Vacant(v) => {
-            v.insert(count);
-          }
-          Occupied(mut o) => {
-            let v = o.get_mut();
-            *v = *v + count;
-          }
+        let norm = normalize_word(word);
+
+        if !should_drop(&norm) {
+          tick_set(&mut forms, norm.clone(), word.clone());
+
+          tick(&mut defer_counts, norm, count);
+        } else {
+          dropped.insert(word.clone());
         }
       }
     }
@@ -167,17 +173,7 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
   }
 
   for (word, count) in defer_counts {
-    use std::collections::hash_map::Entry::*;
-
-    match counts.entry(word.into()) {
-      Vacant(v) => {
-        v.insert(count);
-      }
-      Occupied(mut o) => {
-        let v = o.get_mut();
-        *v = *v + count;
-      }
-    }
+    tick(&mut counts, word, count);
   }
 
   writeln!(io::stderr(), "  finalizing...")?;
@@ -187,6 +183,10 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
   sorted.sort_by(|(_, a), (_, b)| b.cmp(a));
 
   writeln!(io::stderr(), "printing data...")?;
+
+  for word in dropped {
+    writeln!(io::stdout(), "DROP {:?}", word)?;
+  }
 
   for (i, (word, count)) in sorted.iter().enumerate() {
     let mut word = *word;
