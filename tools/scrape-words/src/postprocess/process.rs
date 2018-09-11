@@ -1,3 +1,4 @@
+use super::recover;
 use regex::Regex;
 use std::{
   collections::{BTreeSet, HashMap},
@@ -8,6 +9,7 @@ use unicode_normalization::UnicodeNormalization;
 use Result;
 
 lazy_static! {
+  static ref NEWLINE_RE: Regex = Regex::new(r"\n+").unwrap();
   static ref WHITESPACE_RE: Regex = Regex::new(r"\s+").unwrap();
   static ref DROP_RE: Regex =
     Regex::new(r"^[\p{N}\p{M}\p{P}\p{Z}\p{C}]*$").unwrap();
@@ -28,7 +30,7 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
   writeln!(io::stderr(), "  applying NFKD decomp...")?;
   string = string.nfkd().collect();
 
-  let mut forms: HashMap<String, BTreeSet<String>> = HashMap::new();
+  let mut forms: HashMap<String, HashMap<String, usize>> = HashMap::new();
   let mut counts: HashMap<String, usize> = HashMap::new();
   let mut defer: HashMap<String, usize> = HashMap::new();
 
@@ -51,18 +53,21 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
   }
 
   fn tick_set(
-    map: &mut HashMap<String, BTreeSet<String>>,
+    map: &mut HashMap<String, HashMap<String, usize>>,
     word: String,
     entry: String,
+    count: usize,
   ) {
     use std::collections::hash_map::Entry::*;
 
     match map.entry(word) {
       Vacant(v) => {
-        v.insert(BTreeSet::new()).insert(entry);
+        let mut val = HashMap::new();
+        tick(&mut val, entry, count);
+        v.insert(val);
       }
       Occupied(mut o) => {
-        o.get_mut().insert(entry);
+        tick(o.get_mut(), entry, count);
       }
     }
   }
@@ -88,7 +93,7 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
     let norm = normalize_word(word);
 
     if !should_drop(&norm) {
-      tick_set(&mut forms, norm.clone(), word.into());
+      tick_set(&mut forms, norm.clone(), word.into(), 1);
       tick(&mut counts, norm.into(), 1);
     } else {
       dropped.insert(word.into());
@@ -128,8 +133,7 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
           let norm = normalize_word(word);
 
           if !should_drop(&norm) {
-            tick_set(&mut forms, norm.clone(), word.into());
-
+            tick_set(&mut forms, norm.clone(), word.into(), count);
             tick(&mut defer_counts, norm, count);
           } else {
             dropped.insert(word.into());
@@ -142,8 +146,7 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
         actions.insert(word.clone(), Action::Trim);
 
         if !should_drop(&trimmed) {
-          tick_set(&mut forms, trimmed.clone(), word.clone());
-
+          tick_set(&mut forms, trimmed.clone(), word.clone(), count);
           tick(&mut defer_counts, trimmed, count);
         } else {
           dropped.insert(word.clone());
@@ -154,8 +157,7 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
         let norm = normalize_word(word);
 
         if !should_drop(&norm) {
-          tick_set(&mut forms, norm.clone(), word.clone());
-
+          tick_set(&mut forms, norm.clone(), word.clone(), count);
           tick(&mut defer_counts, norm, count);
         } else {
           dropped.insert(word.clone());
@@ -176,6 +178,25 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
     tick(&mut counts, word, count);
   }
 
+  writeln!(io::stderr(), "  demangling words...")?;
+
+  let wordlist = {
+    let mut file = File::open("etc/wordlist.txt")?;
+    let mut words = Vec::<u8>::new();
+
+    io::copy(&mut file, &mut words)?;
+
+    let words = String::from_utf8(words)?;
+
+    recover::create_wordlist(
+      NEWLINE_RE.split(&words),
+      normalize_word,
+      |a, _| a,
+    )?
+  };
+
+  let recover_map = recover::create_map(&forms, &wordlist)?;
+
   writeln!(io::stderr(), "  finalizing...")?;
 
   let mut sorted: Vec<_> = counts.iter().collect();
@@ -188,33 +209,54 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
     writeln!(io::stdout(), "DROP {:?}", word)?;
   }
 
+  for (a, b) in &recover_map {
+    if a == b {
+      continue;
+    }
+    writeln!(io::stdout(), "recover {:?} -> {:?}", a, b)?;
+  }
+
   for (i, (word, count)) in sorted.iter().enumerate() {
-    let mut word = *word;
+    let word = *word;
+    let recovered = recover_map.get(word).map_or("_", |w| w.as_str());
     let mut word_forms: Vec<_>;
 
     if let Some(f) = forms.get(word) {
-      word_forms = f.iter().collect();
+      let mut f: Vec<_> = f.iter().collect();
+      f.sort_by(|(_, a), (_, b)| b.cmp(a));
+
+      word_forms = f;
     } else {
       word_forms = Vec::new();
     }
 
-    if word_forms.len() == 1 {
-      word = word_forms.pop().unwrap();
-    }
+    let name = if word == recovered {
+      word.clone()
+    } else {
+      format!("{} «{}»", word, recovered)
+    };
 
-    if word_forms.is_empty() {
-      writeln!(outf, "#{:6} ({:6}) : {}", i + 1, count, word)?;
+    if word_forms
+      .iter()
+      .all(|(f, _)| f == &word || f == &recovered)
+    {
+      writeln!(
+        outf,
+        "#{:6} ({:6}) : {}",
+        i + 1,
+        count,
+        name
+      )?;
     } else {
       writeln!(
         outf,
-        "#{:6} ({:6}) : {:32} {}",
+        "#{:6} ({:6}) : {:48} {}",
         i + 1,
         count,
-        word,
+        name,
         word_forms
           .iter()
-          .filter(|f| f != &&word)
-          .map(|w| String::clone(w))
+          .map(|(f, c)| format!("{} ({})", f, c))
           .collect::<Vec<_>>()
           .join("\t\t")
       )?;

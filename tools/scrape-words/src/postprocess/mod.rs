@@ -2,6 +2,7 @@ use std::str::FromStr;
 use {ParseError, ParseErrorKind, ParseResult};
 
 mod process;
+mod recover;
 
 pub use self::process::*;
 
