@@ -1,6 +1,6 @@
 target/
 
 **/*.rs.bk
-apikey.json
-apitok.json
+apikey.reddit.json
+apitok.reddit.json
 *.log

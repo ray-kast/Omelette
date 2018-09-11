@@ -24,18 +24,18 @@ impl client::ClientHooks for ClientHooks {
     tok: auth::RcAuthToken,
   ) -> Box<dyn Future<Item = (), Error = ()> + Send> {
     Box::new(
-      File::create("etc/apitok.json")
+      File::create("etc/apitok.reddit.json")
         .into_future()
         .from_err()
         .and_then(move |file| {
-          writeln!(io::stderr(), "saving etc/apitok.json...").unwrap();
+          writeln!(io::stderr(), "saving etc/apitok.reddit.json...").unwrap();
 
           serde_json::to_writer(file, tok.as_ref())
             .into_future()
             .from_err()
         })
         .map_err(|e: Error| {
-          writeln!(io::stderr(), "failed to save etc/apitok.json: {}", e)
+          writeln!(io::stderr(), "failed to save etc/apitok.reddit.json: {}", e)
             .unwrap()
         }),
     )
@@ -53,7 +53,7 @@ where
   F: FnOnce(reddit::AppId) -> reddit::RcAppInfo,
 {
   let id = {
-    let file = File::open("etc/apikey.json")?;
+    let file = File::open("etc/apikey.reddit.json")?;
 
     serde_json::from_reader(file)?
   };
@@ -61,7 +61,7 @@ where
   let app = get_app(id);
 
   fn retrieve_token() -> Result<auth::AuthToken> {
-    let file = File::open("etc/apitok.json")?;
+    let file = File::open("etc/apitok.reddit.json")?;
 
     Ok(serde_json::from_reader(file)?)
   }
