@@ -18,7 +18,7 @@ lazy_static! {
   static ref NONWORD_STRIP_RE: Regex =
     Regex::new(r"[\p{M}\p{Ps}\p{Pe}\p{Pi}\p{Pf}\p{Po}\p{C}--/]").unwrap();
   static ref DEFER_SPLIT_RE: Regex =
-    Regex::new(r"[/\p{Pc}\p{Pd}\p{Z}]").unwrap();
+    Regex::new(r"(?:[/\p{Pc}\p{Pd}\p{Z}]|\.{3,})+").unwrap();
 }
 
 pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
