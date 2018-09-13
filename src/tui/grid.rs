@@ -143,7 +143,10 @@ impl<'a> ElementCore for Grid<'a> {
             let mut child = self.children[*k].borrow_mut();
 
             child.measure(MeasureSize {
-              w: None,
+              w: match self.cols[j] {
+                Content => Some(0),
+                _ => None,
+              },
               h: Some(0),
             });
 
@@ -272,6 +275,7 @@ impl<'a> ElementCore for Grid<'a> {
       }
     }
 
+    // TODO: this is wrong
     MeasureSize {
       w: Some(used_size.w),
       h: Some(used_size.h),

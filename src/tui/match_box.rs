@@ -61,7 +61,7 @@ impl<'a> ElementCore for MatchBox<'a> {
   fn arrange_impl(&mut self, space: Rect) {
     // TODO: these shouldn't be in arrange
     nc::wresize(self.win, 1, self.form.full.len() as i32);
-    nc::mvwin(self.win, space.pos.x, space.pos.y);
+    nc::mvwin(self.win, space.pos.y, space.pos.x);
   }
 
   fn render_impl(&mut self) {
