@@ -183,8 +183,6 @@ pub fn get_comments(
   client: RcClient,
   link: &types::Link,
 ) -> impl Future<Item = (types::Thing, types::Thing), Error = Error> {
-  // TODO: what's the actual type of the return?
-
   request::create_request_authorized(client.clone())
     .method("GET")
     .uri(format!(

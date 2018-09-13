@@ -223,9 +223,6 @@ pub fn pretty_unwrap(html: &str) -> Result<String> {
           NodeType::Unknown(_) => (),
         }
 
-        // TODO: this is very not right, but it works well enough and I
-        //       don't want to touch it anymore
-
         (children.concat().trim_right().into(), state)
       }
       Element::Ignore => unreachable!(),

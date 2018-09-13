@@ -100,7 +100,6 @@ impl ElementCore for WordBox {
   }
 
   fn arrange_impl(&mut self, space: Rect) {
-    // TODO: these shouldn't be in arrange
     nc::wresize(self.win, 1, self.max as i32 * 2 - 1);
     nc::mvwin(self.win, space.pos.y, space.pos.x);
   }

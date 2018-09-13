@@ -194,7 +194,7 @@ impl<'a> ElementCore for WrapBox<'a> {
 
         for child in &self.children {
           if row.1 == 0 {
-            pos.y = pos.y + row.0.h + self.line_sep; // TODO
+            pos.y = pos.y + row.0.h + self.line_sep;
             row = self.lines[i];
             i = i + 1;
             pos.x = 0; // TODO: pay attention to alignment when doing this
@@ -226,7 +226,7 @@ impl<'a> ElementCore for WrapBox<'a> {
 
         for child in &self.children {
           if col.1 == 0 {
-            pos.x = pos.x + col.0.w + self.line_sep; // TODO
+            pos.x = pos.x + col.0.w + self.line_sep;
             col = self.lines[i];
             i = i + 1;
             pos.y = 0; // TODO: pay attention to alignment when doing this
