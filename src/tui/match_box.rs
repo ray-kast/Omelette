@@ -4,7 +4,7 @@ use tui::prelude_internal::*;
 use word_list::WordlistForm;
 
 pub struct MatchBox<'a> {
-  desired_size: Size,
+  coredata: ElementCoreData,
   win: nc::WINDOW,
   form: &'a WordlistForm,
   revealed: bool,
@@ -13,7 +13,7 @@ pub struct MatchBox<'a> {
 impl<'a> MatchBox<'a> {
   pub fn new(form: &'a WordlistForm) -> Self {
     Self {
-      desired_size: Size { w: 0, h: 0 },
+      coredata: Default::default(),
       win: nc::newwin(1, 1, 0, 0),
       form,
       revealed: false,
@@ -43,18 +43,18 @@ impl<'a> MatchBox<'a> {
 }
 
 impl<'a> ElementCore for MatchBox<'a> {
-  fn set_desired_size(&mut self, val: Size) {
-    self.desired_size = val;
+  fn get_coredata(&self) -> &ElementCoreData {
+    &self.coredata
   }
 
-  fn desired_size(&self) -> Size {
-    self.desired_size
+  fn get_coredata_mut(&mut self) -> &mut ElementCoreData {
+    &mut self.coredata
   }
 
-  fn measure_impl(&self, space: Size) -> Size {
-    Size {
-      w: self.displayed_str().len() as i32,
-      h: 1,
+  fn measure_impl(&mut self, space: MeasureSize) -> MeasureSize {
+    MeasureSize {
+      w: Some(self.displayed_str().len() as i32),
+      h: Some(1),
     }
   }
 
@@ -64,7 +64,7 @@ impl<'a> ElementCore for MatchBox<'a> {
     nc::mvwin(self.win, space.pos.x, space.pos.y);
   }
 
-  fn render_impl(&self) {
+  fn render_impl(&mut self) {
     nc::mvwaddstr(self.win, 0, 0, self.displayed_str());
 
     nc::wrefresh(self.win);

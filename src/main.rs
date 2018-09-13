@@ -8,8 +8,11 @@ extern crate serde_derive;
 mod tui;
 mod word_list;
 
-use std::fs::File;
-use tui::{controls::*, element as el};
+use std::{fs::File, panic};
+use tui::{
+  controls::*,
+  element::{self as el, Element},
+};
 
 fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
   nc::wmove(win, y, 0);
@@ -19,6 +22,10 @@ fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
 }
 
 fn main() {
+  panic::catch_unwind(|| {
+    nc::endwin();
+  }).unwrap();
+
   let _words = word_list::read_file(
     &mut File::open("words.json").expect("wordlist not found"),
   );
@@ -90,5 +97,5 @@ fn main() {
     }
   }
 
-  nc::endwin(); // TODO: should I worry about panicking?
+  nc::endwin();
 }

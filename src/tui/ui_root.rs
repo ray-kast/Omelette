@@ -25,7 +25,7 @@ impl<'a> UiRoot<'a> {
 
     let mut child = self.child.borrow_mut();
 
-    child.measure(size);
+    child.measure(MeasureSize { w: Some(size.w), h: Some(size.h) });
 
     child.arrange(Rect {
       pos: Point { x: 0, y: 0 },

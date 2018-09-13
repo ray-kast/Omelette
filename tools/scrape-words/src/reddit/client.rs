@@ -24,10 +24,10 @@ pub trait ClientHooks {
   fn save_token(
     &self,
     tok: auth::RcAuthToken,
-  ) -> Box<dyn Future<Item = (), Error = ()> + Send>;
+  ) -> Box<Future<Item = (), Error = ()> + Send>;
 }
 
-pub type ClientHookObject = Arc<dyn ClientHooks + Send + Sync>;
+pub type ClientHookObject = Arc<ClientHooks + Send + Sync>;
 
 // #[derive(Debug)] // TODO: fix hooks
 pub struct Client {

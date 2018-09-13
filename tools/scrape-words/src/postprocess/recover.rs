@@ -41,7 +41,7 @@ where
     }
   }
 
-  let ret = ret.drain().map(|(k, v)| (k, v.to_string())).collect();
+  let ret = ret.into_iter().map(|(k, v)| (k, v.to_string())).collect();
 
   Ok(ret)
 }
@@ -89,7 +89,7 @@ pub fn create_map(
   }
 
   let ret = ret
-    .drain()
+    .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
 

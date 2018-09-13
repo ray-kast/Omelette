@@ -22,7 +22,7 @@ impl client::ClientHooks for ClientHooks {
   fn save_token(
     &self,
     tok: auth::RcAuthToken,
-  ) -> Box<dyn Future<Item = (), Error = ()> + Send> {
+  ) -> Box<Future<Item = (), Error = ()> + Send> {
     Box::new(
       File::create("etc/apitok.reddit.json")
         .into_future()
@@ -128,7 +128,7 @@ where
 
             {
               let mut listings = listings.lock().unwrap();
-              links = listings.drain(0..).flat_map(|l| l.children).collect();
+              links = listings.into_iter().flat_map(|l| l.children).collect();
             }
 
             writeln!(io::stderr(), "retrieving comments...").unwrap();

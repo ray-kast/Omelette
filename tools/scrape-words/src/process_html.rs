@@ -91,7 +91,7 @@ pub fn pretty_unwrap(html: &str) -> Result<String> {
     let mut children = children.unwrap();
 
     let children: Vec<_> = children
-      .drain(..)
+      .into_iter()
       .filter_map(|c| match c {
         Element::Ignore => None,
         e => Some(e),

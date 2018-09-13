@@ -2,6 +2,7 @@ pub mod core;
 pub mod element;
 pub mod internal;
 
+mod grid;
 mod match_box;
 mod test_view;
 mod ui_root;
@@ -12,5 +13,7 @@ pub mod prelude_internal {
 }
 
 pub mod controls {
-  pub use super::{match_box::*, test_view::*, ui_root::*, word_box::*};
+  pub use super::{
+    grid::*, match_box::*, test_view::*, ui_root::*, word_box::*,
+  };
 }
