@@ -1,5 +1,4 @@
-extern crate ncurses as nc;
-
+use nc;
 use tui::prelude_internal::*;
 
 pub struct UiRoot<'a> {

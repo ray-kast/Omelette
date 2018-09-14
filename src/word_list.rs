@@ -1,13 +1,58 @@
-extern crate serde;
-extern crate serde_json;
-
 use serde::{de, Deserialize, Deserializer};
-use std::{collections::HashMap, fmt, fs::File, io::prelude::*};
+use serde_json;
+use std::{collections::HashMap, fmt, io::prelude::*};
 
-#[derive(Deserialize)]
 pub struct WordList {
   forms: HashMap<String, WordlistForm>,
-  sets: HashMap<usize, HashMap<String, Vec<String>>>,
+  set_keys: HashMap<usize, Vec<String>>,
+  sets: HashMap<String, Vec<String>>,
+}
+
+impl WordList {
+  pub fn new<R>(reader: R) -> Self
+  where
+    R: Read,
+  {
+    #[derive(Deserialize)]
+    struct SerializedForm {
+      forms: Option<HashMap<String, WordlistForm>>,
+      sets: Option<HashMap<usize, HashMap<String, Vec<String>>>>,
+    }
+
+    let mut value: SerializedForm = serde_json::from_reader(reader).unwrap();
+
+    let mut set_keys: HashMap<usize, Vec<String>> = HashMap::new();
+    let mut sets: HashMap<String, Vec<String>> = HashMap::new();
+
+    for (len, map) in value.sets.take().unwrap() {
+      let mut keys = Vec::new();
+
+      for (key, set) in map {
+        keys.push(key.clone());
+        sets.insert(key, set);
+      }
+
+      set_keys.insert(len, keys);
+    }
+
+    Self {
+      forms: value.forms.take().unwrap(),
+      set_keys,
+      sets,
+    }
+  }
+
+  pub fn get_form(&self, word: &str) -> Option<&WordlistForm> {
+    self.forms.get(word)
+  }
+
+  pub fn get_set_keys(&self, len: &usize) -> Option<&Vec<String>> {
+    self.set_keys.get(len)
+  }
+
+  pub fn get_set(&self, key: &str) -> Option<&Vec<String>> {
+    self.sets.get(key)
+  }
 }
 
 pub struct WordlistForm {
@@ -51,17 +96,4 @@ impl<'de> Deserialize<'de> for WordlistForm {
   {
     deserializer.deserialize_tuple(3, WordlistFormVisitor())
   }
-}
-
-pub fn read(data: &str) -> WordList {
-  serde_json::from_str(data).expect("failed to parse wordlist")
-}
-
-pub fn read_file(file: &mut File) -> WordList {
-  let mut data = String::new();
-  file
-    .read_to_string(&mut data)
-    .expect("failed to read wordlist");
-
-  read(&data)
 }

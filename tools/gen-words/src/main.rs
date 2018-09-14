@@ -153,11 +153,13 @@ fn main() {
 
     let iter = counts.iter().filter(|(d, _)| d.len() == len);
 
-    let len = iter.clone().count();
+    let total = iter.clone().count();
 
     for (i, (depermuted, count)) in iter.enumerate() {
-      print!("\r\x1b[2K({}/{}) {}", &i, &len, &depermuted);
-      io::stdout().flush().unwrap();
+      if i % 10 == 0 {
+        print!("\r\x1b[2K({}/{}) {}", &i, &total, &depermuted);
+        io::stdout().flush().unwrap();
+      }
 
       let mut list: Vec<&String> = valid_subwords
         .iter()
@@ -182,7 +184,7 @@ fn main() {
 
     println!(
       "\r\x1b[2K{} processed in {}.{:02}s",
-      len,
+      total,
       time.as_secs(),
       time.subsec_millis() / 10
     );
@@ -193,7 +195,8 @@ fn main() {
   list.forms.retain(|k, _| used_words.contains(k));
 
   {
-    let file = File::create("words.json").expect("couldn't create output file");
+    let file =
+      File::create("etc/words.json").expect("couldn't create output file");
     let file = BufWriter::new(&file);
 
     serde_json::to_writer(file, &list).expect("failed to write JSON");

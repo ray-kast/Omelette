@@ -1,6 +1,5 @@
-extern crate ncurses as nc;
-
-use std::cmp;
+use nc;
+use std::{cmp, collections::HashMap};
 use tui::prelude_internal::*;
 
 pub struct WordBox {
@@ -8,31 +7,55 @@ pub struct WordBox {
   win: nc::WINDOW,
   cur: usize,
   max: usize,
-  pub buf: String,
+  buf: String,
+  avail: HashMap<char, usize>,
+  remain: HashMap<char, usize>,
 }
 
 impl WordBox {
-  pub fn new(max: usize) -> Self {
+  pub fn new(max: usize, avail: HashMap<char, usize>) -> Self {
+    let remain = avail.clone();
+
     Self {
       coredata: Default::default(),
       win: nc::newwin(1, 1, 0, 0),
       cur: 0,
       max,
       buf: String::new(),
+      avail,
+      remain,
+    }
+  }
+
+  pub fn buf(&self) -> &String {
+    &self.buf
+  }
+
+  fn remove(&mut self, at: usize) {
+    use std::collections::hash_map::Entry::*;
+
+    match self.remain.entry(self.buf.remove(self.cur)) {
+      Vacant(v) => { v.insert(1); },
+      Occupied(o) => {
+        let mut v = o.into_mut();
+        *v = *v + 1;
+      }
     }
   }
 
   pub fn del_left(&mut self) {
     if !self.buf.is_empty() {
       self.cur = self.cur - 1;
-      self.buf.remove(self.cur);
+      let cur = self.cur;
+      self.remove(cur);
       self.render();
     }
   }
 
   pub fn del_right(&mut self) {
     if !self.buf.is_empty() && self.cur < self.buf.len() {
-      self.buf.remove(self.cur);
+      let cur = self.cur;
+      self.remove(cur);
       self.render();
     }
   }
@@ -40,18 +63,37 @@ impl WordBox {
   pub fn clear(&mut self) {
     self.buf.clear();
     self.cur = 0;
+    self.remain = self.avail.clone();
     self.render();
   }
 
-  pub fn put(&mut self, s: &str) -> bool {
-    if s.len() + self.buf.len() <= self.max {
-      self.buf.insert_str(self.cur, s);
-      self.cur = self.cur + s.len();
-      self.render();
+  pub fn put(&mut self, s: &str) {
+    let mut dirty = false;
 
-      true
-    } else {
-      false
+    for c in s.chars() {
+      if self.buf.len() >= self.max {
+        break;
+      }
+
+      use std::collections::hash_map::Entry::*;
+
+      match self.remain.entry(c) {
+        Vacant(_) => (),
+        Occupied(o) => {
+          let mut v = o.into_mut();
+
+          if *v > 0 {
+            self.buf.insert_str(self.cur, s);
+            self.cur = self.cur + s.len();
+            dirty = true;
+            *v = *v - 1;
+          }
+        }
+      }
+    }
+
+    if dirty {
+      self.render();
     }
   }
 

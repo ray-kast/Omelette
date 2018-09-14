@@ -1,4 +1,5 @@
 extern crate ncurses as nc;
+extern crate rand;
 extern crate regex;
 extern crate serde;
 extern crate serde_json;
@@ -12,12 +13,19 @@ extern crate serde_derive;
 mod tui;
 mod word_list;
 
+use rand::prelude::*;
 use regex::Regex;
-use std::{collections::HashMap, fs::File, panic, rc::Rc};
+use std::{
+  collections::HashMap,
+  fs::File,
+  io::{self, prelude::*},
+  panic,
+};
 use tui::{
   controls::*,
   element::{self as el, Element},
 };
+use word_list::WordList;
 
 fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
   nc::wmove(win, y, 0);
@@ -26,45 +34,93 @@ fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
   nc::wrefresh(win);
 }
 
+fn count_chars(s: &str) -> HashMap<char, usize> {
+  let mut ret = HashMap::new();
+
+  for c in s.chars() {
+    use std::collections::hash_map::Entry::*;
+
+    match ret.entry(c) {
+      Occupied(o) => {
+        let mut val = o.into_mut();
+        *val = *val + 1;
+      }
+      Vacant(v) => {
+        v.insert(1);
+      }
+    }
+  }
+
+  ret
+}
+
 fn main() {
   panic::catch_unwind(|| {
     nc::endwin();
   }).unwrap();
 
-  let _words = word_list::read_file(
-    &mut File::open("words.json").expect("wordlist not found"),
+  let words = WordList::new(
+    &mut File::open("etc/words.json").expect("wordlist not found"),
   );
+
+  let word_len;
+  let key;
+  let set = {
+    let mut len: usize;
+    let keys = loop {
+      let mut len_str = String::new();
+
+      write!(io::stderr(), "word length: ").unwrap();
+      io::stderr().flush().unwrap();
+
+      if io::stdin().read_line(&mut len_str).unwrap() == 0 {
+        writeln!(io::stderr(), "").unwrap();
+        return;
+      }
+
+      len = match len_str.trim().parse() {
+        Ok(l) => l,
+        Err(e) => {
+          writeln!(io::stderr(), "invalid number: {}", e).unwrap();
+          continue;
+        }
+      };
+
+      match words.get_set_keys(&len) {
+        Some(k) => break k,
+        None => {
+          writeln!(io::stderr(), "no words found of length {}", len).unwrap();
+          continue;
+        }
+      }
+    };
+
+    word_len = len;
+
+    key = &keys[rand::thread_rng().gen_range(0, keys.len())];
+
+    words.get_set(key).unwrap()
+  };
 
   let win = nc::initscr();
   nc::cbreak();
   nc::noecho();
   nc::keypad(win, true);
 
-  let word_box = el::wrap(WordBox::new(8));
+  let word_box = el::wrap(WordBox::new(word_len, count_chars(key)));
 
-  let mut forms = Vec::new();
   let mut match_boxes: HashMap<String, _> = HashMap::new();
 
-  for word in vec![""].into_iter() {
-    lazy_static! {
-      static ref BLANK_RE: Regex = Regex::new(r"\w").unwrap();
-    }
-
-    forms.push(word_list::WordlistForm {
-      full: word.to_string(),
-      blanked: BLANK_RE.replace_all(word, "_").into_owned(),
-    });
-  }
-
-  for form in forms.iter() {
-    match_boxes.insert(form.full.clone(), el::wrap(MatchBox::new(form)));
+  for word in set {
+    let form = words.get_form(word).unwrap();
+    match_boxes.insert(word.to_string(), el::wrap(MatchBox::new(form)));
   }
 
   let match_box_panel = el::wrap(WrapBox::new(
-    match_boxes.iter().map(|(_, b)| el::add_ref(b)),
+    set.iter().map(|f| el::add_ref(&match_boxes[f])),
     WrapMode::Cols,
     WrapAlign::Begin,
-    1,
+    3,
   ));
 
   let center_test = el::wrap(TestView::new(
@@ -84,12 +140,12 @@ fn main() {
         // EOL
         let mut word_box = word_box.borrow_mut();
 
-        match match_boxes.get(&word_box.buf) {
+        match match_boxes.get(word_box.buf()) {
           Some(b) => {
             let mut b = b.borrow_mut();
 
             b.set_revealed(true);
-          },
+          }
           None => (),
         }
 
@@ -113,12 +169,12 @@ fn main() {
             let s = ch.to_lowercase().to_string();
             word_box.put(&s);
           } else {
-            dump_line(win, 3, &ch.escape_unicode().to_string());
-            word_box.render_cur();
+            // dump_line(win, 3, &ch.escape_unicode().to_string());
+            // word_box.render_cur();
           }
         } else {
-          dump_line(win, 4, &ch.to_string());
-          word_box.render_cur();
+          // dump_line(win, 4, &ch.to_string());
+          // word_box.render_cur();
         }
       }
     }
