@@ -35,7 +35,9 @@ impl WordBox {
     use std::collections::hash_map::Entry::*;
 
     match self.remain.entry(self.buf.remove(self.cur)) {
-      Vacant(v) => { v.insert(1); },
+      Vacant(v) => {
+        v.insert(1);
+      }
       Occupied(o) => {
         let mut v = o.into_mut();
         *v = *v + 1;

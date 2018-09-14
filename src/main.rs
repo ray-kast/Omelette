@@ -41,12 +41,12 @@ fn count_chars(s: &str) -> HashMap<char, usize> {
     use std::collections::hash_map::Entry::*;
 
     match ret.entry(c) {
+      Vacant(v) => {
+        v.insert(1);
+      }
       Occupied(o) => {
         let mut val = o.into_mut();
         *val = *val + 1;
-      }
-      Vacant(v) => {
-        v.insert(1);
       }
     }
   }

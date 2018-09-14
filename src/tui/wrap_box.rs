@@ -190,7 +190,10 @@ impl<'a> ElementCore for WrapBox<'a> {
       Rows => {
         let mut i: usize = 0;
         let mut row = (Size { w: 0, h: 0 }, 0);
-        let mut pos = Point { x: 0, y: -self.line_sep };
+        let mut pos = Point {
+          x: 0,
+          y: -self.line_sep,
+        };
 
         for child in &self.children {
           if row.1 == 0 {
@@ -222,7 +225,10 @@ impl<'a> ElementCore for WrapBox<'a> {
       Cols => {
         let mut i: usize = 0;
         let mut col = (Size { w: 0, h: 0 }, 0);
-        let mut pos = Point { x: -self.line_sep, y: 0 };
+        let mut pos = Point {
+          x: -self.line_sep,
+          y: 0,
+        };
 
         for child in &self.children {
           if col.1 == 0 {

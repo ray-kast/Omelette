@@ -33,8 +33,8 @@ where
       Vacant(v) => {
         v.insert(word);
       }
-      Occupied(mut o) => {
-        let v = o.get_mut();
+      Occupied(o) => {
+        let v = o.into_mut();
 
         *v = dedup(v, word);
       }

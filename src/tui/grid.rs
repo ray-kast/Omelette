@@ -40,8 +40,8 @@ impl<'a> Grid<'a> {
           Vacant(v) => {
             v.insert(HashSet::new()).insert(i);
           }
-          Occupied(mut o) => {
-            o.get_mut().insert(i);
+          Occupied(o) => {
+            o.into_mut().insert(i);
           }
         }
 
@@ -156,8 +156,8 @@ impl<'a> ElementCore for Grid<'a> {
               Vacant(v) => {
                 v.insert(size);
               }
-              Occupied(mut o) => {
-                let v = o.get_mut();
+              Occupied(o) => {
+                let v = o.into_mut();
                 *v = cmp::max(*v, size);
               }
             }
@@ -180,8 +180,8 @@ impl<'a> ElementCore for Grid<'a> {
                 Vacant(v) => {
                   v.insert(size);
                 }
-                Occupied(mut o) => {
-                  let v = o.get_mut();
+                Occupied(o) => {
+                  let v = o.into_mut();
                   *v = cmp::max(*v, size);
                 }
               }

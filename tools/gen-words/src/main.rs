@@ -7,7 +7,7 @@ extern crate serde_derive;
 
 use regex::Regex;
 use std::{
-  collections::{hash_map::Entry as HashEntry, HashMap, HashSet},
+  collections::{HashMap, HashSet},
   fs::File,
   io,
   io::{prelude::*, BufReader, BufWriter},
@@ -30,12 +30,14 @@ fn count_chars(s: &str) -> CharCounts {
   let mut ret = CharCounts::new();
 
   for c in s.chars() {
+    use std::collections::hash_map::Entry::*;
+
     match ret.entry(c) {
-      HashEntry::Occupied(o) => {
+      Occupied(o) => {
         let mut val = o.into_mut();
         *val = *val + 1;
       }
-      HashEntry::Vacant(v) => {
+      Vacant(v) => {
         v.insert(1);
       }
     }
@@ -89,6 +91,8 @@ fn main() {
   let blank_re = Regex::new(r"\w").unwrap();
 
   for word in words {
+    use std::collections::hash_map::Entry::*;
+
     if reject_re.is_match(&word) {
       continue;
     }
@@ -97,18 +101,18 @@ fn main() {
     let normalized = normal_re.replace_all(&normalized, "").into_owned();
 
     match list.forms.entry(normalized.clone()) {
-      HashEntry::Occupied(o) => {
+      Vacant(v) => {
+        v.insert(WordlistForm(
+          word.clone(),
+          blank_re.replace_all(&word, "_").into_owned(),
+        ));
+      }
+      Occupied(o) => {
         let val = o.get();
         println!(
           "WARNING: {} is a duplicate! ({} vs. {})",
           &normalized, &word, val.0
         );
-      }
-      HashEntry::Vacant(v) => {
-        v.insert(WordlistForm(
-          word.clone(),
-          blank_re.replace_all(&word, "_").into_owned(),
-        ));
       }
     }
 
@@ -117,25 +121,25 @@ fn main() {
     let depermuted: String = depermuted.iter().collect();
 
     match permutations.entry(depermuted.clone()) {
-      HashEntry::Occupied(o) => {
-        o.into_mut().push(normalized.clone());
-      }
-      HashEntry::Vacant(v) => {
+      Vacant(v) => {
         v.insert([normalized].to_vec());
         counts.insert(depermuted.clone(), count_chars(&depermuted));
 
         match len_groups.entry(depermuted.len()) {
-          HashEntry::Occupied(o) => {
-            o.into_mut().push(depermuted.clone());
-          }
-          HashEntry::Vacant(v) => {
+          Vacant(v) => {
             v.insert([depermuted.clone()].to_vec());
+          }
+          Occupied(o) => {
+            o.into_mut().push(depermuted.clone());
           }
         }
 
         if depermuted.len() >= min_valid_len {
           valid_subwords.push(depermuted.clone());
         }
+      }
+      Occupied(o) => {
+        o.into_mut().push(normalized.clone());
       }
     };
   }

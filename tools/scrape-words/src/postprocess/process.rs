@@ -45,8 +45,8 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
       Vacant(v) => {
         v.insert(count);
       }
-      Occupied(mut o) => {
-        let v = o.get_mut();
+      Occupied(o) => {
+        let v = o.into_mut();
         *v = *v + count;
       }
     }
@@ -66,8 +66,8 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
         tick(&mut val, entry, count);
         v.insert(val);
       }
-      Occupied(mut o) => {
-        tick(o.get_mut(), entry, count);
+      Occupied(o) => {
+        tick(o.into_mut(), entry, count);
       }
     }
   }
@@ -240,13 +240,7 @@ pub fn analyze(ins: Vec<u8>, mut outf: File) -> Result<()> {
       .iter()
       .all(|(f, _)| f == &word || f == &recovered)
     {
-      writeln!(
-        outf,
-        "#{:6} ({:6}) : {}",
-        i + 1,
-        count,
-        name
-      )?;
+      writeln!(outf, "#{:6} ({:6}) : {}", i + 1, count, name)?;
     } else {
       writeln!(
         outf,
