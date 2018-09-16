@@ -71,13 +71,13 @@ fn main() {
   println!("read {} word(s)", words.len());
 
   // depermuted => [normalized]
-  let mut permutations: HashMap<String, Vec<String>> = HashMap::new();
+  let mut permutations: HashMap<String, HashSet<String>> = HashMap::new();
   // depermuted => count
   let mut counts: HashMap<String, CharCounts> = HashMap::new();
   // len => [depermuted]
-  let mut len_groups: HashMap<usize, Vec<String>> = HashMap::new();
+  let mut len_groups: HashMap<usize, HashSet<String>> = HashMap::new();
   // [depermuted]
-  let mut valid_subwords: Vec<String> = Vec::new();
+  let mut valid_subwords: HashSet<String> = HashSet::new();
   // [normalized]
   let mut used_words: HashSet<String> = HashSet::new();
 
@@ -122,24 +122,24 @@ fn main() {
 
     match permutations.entry(depermuted.clone()) {
       Vacant(v) => {
-        v.insert([normalized].to_vec());
+        v.insert(HashSet::new()).insert(normalized);
         counts.insert(depermuted.clone(), count_chars(&depermuted));
 
         match len_groups.entry(depermuted.len()) {
           Vacant(v) => {
-            v.insert([depermuted.clone()].to_vec());
+            v.insert(HashSet::new()).insert(depermuted.clone());
           }
           Occupied(o) => {
-            o.into_mut().push(depermuted.clone());
+            o.into_mut().insert(depermuted.clone());
           }
         }
 
         if depermuted.len() >= min_valid_len {
-          valid_subwords.push(depermuted.clone());
+          valid_subwords.insert(depermuted);
         }
       }
       Occupied(o) => {
-        o.into_mut().push(normalized.clone());
+        o.into_mut().insert(normalized);
       }
     };
   }
