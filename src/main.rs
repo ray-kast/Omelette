@@ -63,122 +63,132 @@ fn main() {
     &mut File::open("etc/words.json").expect("wordlist not found"),
   );
 
-  let word_len;
-  let key;
-  let set = {
-    let mut len: usize;
-    let keys = loop {
-      let mut len_str = String::new();
+  loop {
+    let key;
+    let set = {
+      let mut len: usize;
+      let keys = loop {
+        let mut len_str = String::new();
 
-      write!(io::stderr(), "word length: ").unwrap();
-      io::stderr().flush().unwrap();
+        write!(io::stderr(), "word length: ").unwrap();
+        io::stderr().flush().unwrap();
 
-      if io::stdin().read_line(&mut len_str).unwrap() == 0 {
-        writeln!(io::stderr(), "").unwrap();
-        return;
-      }
+        if io::stdin().read_line(&mut len_str).unwrap() == 0 {
+          writeln!(io::stderr(), "").unwrap();
+          return;
+        }
 
-      len = match len_str.trim().parse() {
-        Ok(l) => l,
-        Err(e) => {
-          writeln!(io::stderr(), "invalid number: {}", e).unwrap();
-          continue;
+        len = match len_str.trim().parse() {
+          Ok(l) => l,
+          Err(e) => {
+            writeln!(io::stderr(), "invalid number: {}", e).unwrap();
+            continue;
+          }
+        };
+
+        match words.get_set_keys(&len) {
+          Some(k) => break k,
+          None => {
+            writeln!(io::stderr(), "no words found of length {}", len).unwrap();
+            continue;
+          }
         }
       };
 
-      match words.get_set_keys(&len) {
-        Some(k) => break k,
-        None => {
-          writeln!(io::stderr(), "no words found of length {}", len).unwrap();
-          continue;
-        }
-      }
+      key = &keys[rand::thread_rng().gen_range(0, keys.len())];
+
+      words.get_set(key).unwrap()
     };
 
-    word_len = len;
+    let win = nc::initscr();
+    nc::start_color();
+    nc::cbreak();
+    nc::noecho();
+    nc::keypad(win, true);
 
-    key = &keys[rand::thread_rng().gen_range(0, keys.len())];
+    let ghost_pair: i32 = 1;
+    nc::init_pair(ghost_pair as i16, 2, 0);
+    // nc::init_extended_pair(ghost_pair, 2, 0);
 
-    words.get_set(key).unwrap()
-  };
+    let word_box = el::wrap(WordBox::new(key.clone(), ghost_pair));
 
-  let win = nc::initscr();
-  nc::cbreak();
-  nc::noecho();
-  nc::keypad(win, true);
+    let mut match_boxes: HashMap<String, _> = HashMap::new();
 
-  let word_box = el::wrap(WordBox::new(word_len, count_chars(key)));
+    for word in set {
+      let form = words.get_form(word).unwrap();
+      match_boxes.insert(word.to_string(), el::wrap(MatchBox::new(form)));
+    }
 
-  let mut match_boxes: HashMap<String, _> = HashMap::new();
+    let match_box_panel = el::wrap(WrapBox::new(
+      set.iter().map(|f| el::add_ref(&match_boxes[f])),
+      WrapMode::Cols,
+      WrapAlign::Begin,
+      3,
+    ));
 
-  for word in set {
-    let form = words.get_form(word).unwrap();
-    match_boxes.insert(word.to_string(), el::wrap(MatchBox::new(form)));
-  }
+    let center_test = el::wrap(TestView::new(
+      el::add_ref(&word_box),
+      el::add_ref(&match_box_panel),
+    ));
 
-  let match_box_panel = el::wrap(WrapBox::new(
-    set.iter().map(|f| el::add_ref(&match_boxes[f])),
-    WrapMode::Cols,
-    WrapAlign::Begin,
-    3,
-  ));
+    let ui_root = UiRoot::new(win, el::add_ref(&center_test));
 
-  let center_test = el::wrap(TestView::new(
-    el::add_ref(&word_box),
-    el::add_ref(&match_box_panel),
-  ));
+    ui_root.resize();
 
-  let ui_root = UiRoot::new(win, el::add_ref(&center_test));
+    loop {
+      match nc::wgetch(win) {
+        0x04 => {
+          nc::endwin(); // TODO: break out of the outer loop instead
+          return;
+        } // EOT
+        0x09 => word_box.borrow_mut().shuffle(), // HT
+        0x17 => word_box.borrow_mut().clear(),   // ETB
+        // TODO: capture escape sequences
+        0x1B => break, // ESC
+        0x0A => {
+          // EOL
+          let mut word_box = word_box.borrow_mut();
 
-  ui_root.resize();
+          match match_boxes.get(word_box.buf()) {
+            Some(b) => {
+              let mut b = b.borrow_mut();
 
-  loop {
-    match nc::wgetch(win) {
-      0x04 => break,                         // EOT
-      0x17 => word_box.borrow_mut().clear(), // ETB
-      0x0A => {
-        // EOL
-        let mut word_box = word_box.borrow_mut();
-
-        match match_boxes.get(word_box.buf()) {
-          Some(b) => {
-            let mut b = b.borrow_mut();
-
-            b.set_revealed(true);
+              b.set_revealed(true);
+            }
+            None => (),
           }
-          None => (),
+
+          word_box.clear();
         }
+        0x7F => word_box.borrow_mut().del_left(), // DEL
+        nc::KEY_LEFT => word_box.borrow_mut().left(),
+        nc::KEY_RIGHT => word_box.borrow_mut().right(),
+        nc::KEY_HOME => word_box.borrow_mut().home(),
+        nc::KEY_BACKSPACE => word_box.borrow_mut().del_left(),
+        nc::KEY_DC => word_box.borrow_mut().del_right(),
+        nc::KEY_END => word_box.borrow_mut().end(),
+        nc::KEY_RESIZE => ui_root.resize(),
+        ch => {
+          let mut word_box = word_box.borrow_mut();
 
-        word_box.clear();
-      }
-      0x7F => word_box.borrow_mut().del_left(), // DEL
-      nc::KEY_LEFT => word_box.borrow_mut().left(),
-      nc::KEY_RIGHT => word_box.borrow_mut().right(),
-      nc::KEY_HOME => word_box.borrow_mut().home(),
-      nc::KEY_BACKSPACE => word_box.borrow_mut().del_left(),
-      nc::KEY_DC => word_box.borrow_mut().del_right(),
-      nc::KEY_END => word_box.borrow_mut().end(),
-      nc::KEY_RESIZE => ui_root.resize(),
-      ch => {
-        let mut word_box = word_box.borrow_mut();
+          if ch < nc::KEY_MIN {
+            let ch = ch as u8 as char;
 
-        if ch < nc::KEY_MIN {
-          let ch = ch as u8 as char;
-
-          if !ch.is_control() {
-            let s = ch.to_lowercase().to_string();
-            word_box.put(&s);
+            if !ch.is_control() {
+              let s = ch.to_lowercase().to_string();
+              word_box.put(&s);
+            } else {
+              // dump_line(win, 3, &ch.escape_unicode().to_string());
+              // word_box.render_cur();
+            }
           } else {
-            // dump_line(win, 3, &ch.escape_unicode().to_string());
+            // dump_line(win, 4, &ch.to_string());
             // word_box.render_cur();
           }
-        } else {
-          // dump_line(win, 4, &ch.to_string());
-          // word_box.render_cur();
         }
       }
     }
-  }
 
-  nc::endwin();
+    nc::endwin();
+  }
 }

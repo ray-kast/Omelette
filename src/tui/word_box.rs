@@ -1,29 +1,30 @@
 use nc;
-use std::{cmp, collections::HashMap};
+use rand::{self, prelude::*};
+use std::cmp;
 use tui::prelude_internal::*;
 
 pub struct WordBox {
   coredata: ElementCoreData,
   win: nc::WINDOW,
   cur: usize,
-  max: usize,
   buf: String,
-  avail: HashMap<char, usize>,
-  remain: HashMap<char, usize>,
+  ghost_buf: String,
+  key: String,
+  ghost_pair: i32,
 }
 
 impl WordBox {
-  pub fn new(max: usize, avail: HashMap<char, usize>) -> Self {
-    let remain = avail.clone();
+  pub fn new(key: String, ghost_pair: i32) -> Self {
+    let ghost_buf = key.clone();
 
     Self {
       coredata: Default::default(),
       win: nc::newwin(1, 1, 0, 0),
       cur: 0,
-      max,
       buf: String::new(),
-      avail,
-      remain,
+      ghost_buf,
+      key,
+      ghost_pair,
     }
   }
 
@@ -32,17 +33,7 @@ impl WordBox {
   }
 
   fn remove(&mut self, at: usize) {
-    use std::collections::hash_map::Entry::*;
-
-    match self.remain.entry(self.buf.remove(self.cur)) {
-      Vacant(v) => {
-        v.insert(1);
-      }
-      Occupied(o) => {
-        let mut v = o.into_mut();
-        *v = *v + 1;
-      }
-    }
+    self.ghost_buf.insert(0, self.buf.remove(at));
   }
 
   pub fn del_left(&mut self) {
@@ -63,9 +54,9 @@ impl WordBox {
   }
 
   pub fn clear(&mut self) {
+    self.ghost_buf.insert_str(0, &self.buf);
     self.buf.clear();
     self.cur = 0;
-    self.remain = self.avail.clone();
     self.render();
   }
 
@@ -73,24 +64,18 @@ impl WordBox {
     let mut dirty = false;
 
     for c in s.chars() {
-      if self.buf.len() >= self.max {
+      if self.buf.len() >= self.key.len() {
         break;
       }
 
-      use std::collections::hash_map::Entry::*;
-
-      match self.remain.entry(c) {
-        Vacant(_) => (),
-        Occupied(o) => {
-          let mut v = o.into_mut();
-
-          if *v > 0 {
-            self.buf.insert_str(self.cur, s);
-            self.cur = self.cur + s.len();
-            dirty = true;
-            *v = *v - 1;
-          }
+      match self.ghost_buf.find(c) {
+        Some(i) => {
+          dirty = true;
+          self.buf.insert(self.cur, c);
+          self.cur = self.cur + 1;
+          self.ghost_buf.remove(i);
         }
+        None => {}
       }
     }
 
@@ -106,7 +91,7 @@ impl WordBox {
 
   pub fn move_by(&mut self, by: isize) {
     let cur = self.cur as isize;
-    self.move_to((cur as isize + by) as usize);
+    self.move_to(cmp::max(0, cur as isize + by) as usize);
   }
 
   pub fn left(&mut self) {
@@ -125,6 +110,22 @@ impl WordBox {
     let pos = self.buf.len();
     self.move_to(pos);
   }
+
+  pub fn shuffle(&mut self) {
+    let mut chars: Vec<_> = self.ghost_buf.chars().collect();
+
+    self.ghost_buf.clear();
+
+    let mut i: usize = 0;
+
+    while !chars.is_empty() {
+      let j = rand::thread_rng().gen_range(0, chars.len());
+      self.ghost_buf.push(chars.remove(j));
+      i = i + 1;
+    }
+
+    self.render();
+  }
 }
 
 impl ElementCore for WordBox {
@@ -138,13 +139,13 @@ impl ElementCore for WordBox {
 
   fn measure_impl(&mut self, _: MeasureSize) -> MeasureSize {
     MeasureSize {
-      w: Some(self.max as i32 * 2 + 1),
+      w: Some(self.key.len() as i32 * 2 + 1),
       h: Some(1),
     }
   }
 
   fn arrange_impl(&mut self, space: Rect) {
-    nc::wresize(self.win, 1, self.max as i32 * 2 - 1);
+    nc::wresize(self.win, 1, self.key.len() as i32 * 2 - 1);
     nc::mvwin(self.win, space.pos.y, space.pos.x);
   }
 
@@ -153,9 +154,17 @@ impl ElementCore for WordBox {
       nc::mvwaddch(self.win, 0, (i * 2) as i32, ch as u32);
     }
 
-    for i in self.buf.len()..self.max {
-      nc::mvwaddch(self.win, 0, (i * 2) as i32, '_' as u32);
+    let pair = nc::COLOR_PAIR(self.ghost_pair as i16);
+
+    nc::wattr_on(self.win, pair);
+
+    let buf_len = self.buf.len();
+
+    for (i, ch) in self.ghost_buf.char_indices() {
+      nc::mvwaddch(self.win, 0, ((i + buf_len) * 2) as i32, ch as u32);
     }
+
+    nc::wattr_off(self.win, pair);
 
     nc::wrefresh(self.win);
 
