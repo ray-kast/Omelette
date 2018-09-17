@@ -110,13 +110,17 @@ fn main() {
     nc::init_pair(ghost_pair as i16, 2, 0);
     // nc::init_extended_pair(ghost_pair, 2, 0);
 
+    let hl_pair: i32 = 2;
+    nc::init_pair(hl_pair as i16, 2, 0);
+
     let word_box = el::wrap(WordBox::new(key.clone(), ghost_pair));
 
     let mut match_boxes: HashMap<String, _> = HashMap::new();
 
     for word in set {
       let form = words.get_form(word).unwrap();
-      match_boxes.insert(word.to_string(), el::wrap(MatchBox::new(form)));
+      match_boxes
+        .insert(word.to_string(), el::wrap(MatchBox::new(form, hl_pair)));
     }
 
     let match_box_panel = el::wrap(WrapBox::new(
@@ -125,6 +129,8 @@ fn main() {
       WrapAlign::Begin,
       3,
     ));
+
+    let mut hl_match_box: Option<el::ElemWrapper<MatchBox>> = None;
 
     let center_test = el::wrap(TestView::new(
       el::add_ref(&word_box),
@@ -147,18 +153,35 @@ fn main() {
         0x1B => break, // ESC
         0x0A => {
           // EOL
-          let mut word_box = word_box.borrow_mut();
-
-          match match_boxes.get(word_box.buf()) {
-            Some(b) => {
+          match hl_match_box {
+            Some(ref b) => {
               let mut b = b.borrow_mut();
 
-              b.set_revealed(true);
+              b.set_highlighted(false);
             }
-            None => (),
+            None => {}
           }
 
-          word_box.clear();
+          {
+            let mut word_box = word_box.borrow_mut();
+
+            match match_boxes.get(word_box.buf()) {
+              Some(b) => {
+                let mut b_ref = b.borrow_mut();
+
+                if b_ref.revealed() {
+                  b_ref.set_highlighted(true);
+
+                  hl_match_box = Some(b.clone());
+                } else {
+                  b_ref.set_revealed(true);
+                }
+              }
+              None => (),
+            }
+
+            word_box.clear();
+          }
         }
         0x7F => word_box.borrow_mut().del_left(), // DEL
         nc::KEY_LEFT => word_box.borrow_mut().left(),

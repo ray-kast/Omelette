@@ -53,6 +53,8 @@ where
   }
 }
 
+pub type ElemWrapper<T> = Rc<RefCell<T>>;
+
 pub type ElemRef<'a> = Rc<RefCell<Element + 'a>>;
 
 pub fn wrap<T>(el: T) -> Rc<RefCell<T>>

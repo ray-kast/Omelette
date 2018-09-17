@@ -7,15 +7,19 @@ pub struct MatchBox<'a> {
   win: nc::WINDOW,
   form: &'a WordlistForm,
   revealed: bool,
+  highlighted: bool,
+  hl_pair: i32,
 }
 
 impl<'a> MatchBox<'a> {
-  pub fn new(form: &'a WordlistForm) -> Self {
+  pub fn new(form: &'a WordlistForm, hl_pair: i32) -> Self {
     Self {
       coredata: Default::default(),
       win: nc::newwin(1, 1, 0, 0),
       form,
       revealed: false,
+      highlighted: false,
+      hl_pair
     }
   }
 
@@ -29,6 +33,11 @@ impl<'a> MatchBox<'a> {
 
   pub fn set_revealed(&mut self, val: bool) {
     self.revealed = val;
+    self.render();
+  }
+
+  pub fn set_highlighted(&mut self, val: bool) {
+    self.highlighted = val;
     self.render();
   }
 
@@ -64,7 +73,15 @@ impl<'a> ElementCore for MatchBox<'a> {
   }
 
   fn render_impl(&mut self) {
+    if self.highlighted {
+      nc::wattr_on(self.win, nc::COLOR_PAIR(self.hl_pair as i16));
+    }
+
     nc::mvwaddstr(self.win, 0, 0, self.displayed_str());
+
+    if self.highlighted {
+      nc::wattr_off(self.win, nc::COLOR_PAIR(self.hl_pair as i16));
+    }
 
     nc::wrefresh(self.win);
   }
