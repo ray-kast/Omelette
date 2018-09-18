@@ -3,6 +3,8 @@ extern crate serde;
 extern crate serde_json;
 
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate serde_derive;
 
 use regex::Regex;
@@ -12,7 +14,7 @@ use std::{
   io,
   io::{prelude::*, BufReader, BufWriter},
   str,
-  time::{Duration, Instant},
+  time::Instant,
 };
 
 #[derive(Serialize)]
@@ -86,26 +88,29 @@ fn main() {
     sets: HashMap::new(),
   };
 
-  let reject_re = Regex::new(r"[\d\s]").unwrap();
-  let normal_re = Regex::new(r"\W+").unwrap();
-  let blank_re = Regex::new(r"\w").unwrap();
+  lazy_static! {
+    static ref REJECT_RE: Regex = Regex::new(r"[\d\s]").unwrap();
+    static ref NORMAL_RE: Regex = Regex::new(r"\W+").unwrap();
+    static ref BLANK_RE: Regex = Regex::new(r"[\w--\p{Lu}\p{Lt}]").unwrap();
+    static ref BLANK_CAPS_RE: Regex = Regex::new(r"[\p{Lu}\p{Lt}]").unwrap();
+  }
 
   for word in words {
     use std::collections::hash_map::Entry::*;
 
-    if reject_re.is_match(&word) {
+    if REJECT_RE.is_match(&word) {
       continue;
     }
 
     let normalized = word.to_lowercase();
-    let normalized = normal_re.replace_all(&normalized, "").into_owned();
+    let normalized = NORMAL_RE.replace_all(&normalized, "").into_owned();
 
     match list.forms.entry(normalized.clone()) {
       Vacant(v) => {
-        v.insert(WordlistForm(
-          word.clone(),
-          blank_re.replace_all(&word, "_").into_owned(),
-        ));
+        let blank = BLANK_RE.replace_all(&word, "_");
+        let blank = BLANK_CAPS_RE.replace_all(&blank, "_"); // TODO: highlight this somehow?
+
+        v.insert(WordlistForm(word.clone(), blank.into_owned()));
       }
       Occupied(o) => {
         let val = o.get();

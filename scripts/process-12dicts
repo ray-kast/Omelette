@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+
+require 'set'
+
+def cleanup(str)
+  str.strip.unicode_normalize(:nfkc).gsub(/\s+/, " ")
+end
+
+def lines(path)
+  File.open(path, 'r').each.lazy.map{|l| cleanup(l) }
+end
+
+Source = 'etc/12dicts'
+AltSource = 'etc/alt12dicts'
+
+Dest = 'etc/'
+
+TwoOf12 = File.join(Source, 'American', '2of12.txt')
+TwoOf12Inf = File.join(Source, 'American', '2of12inf.txt')
+ThreeOf6Game = File.join(Source, 'International', '3of6game.txt')
+Neol2016 = File.join(Source, 'Special', 'neol2016.txt')
+
+Reject = Set.new(%w[b c d e f g h i j k l m n o p q r s t u v w x y z])
+
+list = Set.new([
+  *lines(TwoOf12),
+  *lines(TwoOf12Inf),
+  *lines(ThreeOf6Game),
+  *lines(Neol2016)
+    .flat_map{|l| l.split(',') }
+    .flat_map{|g| cleanup(g).split(/\s*->\s*\[\s*(.+)\s*\]/) }
+    .map{|w| cleanup(w) }
+    .reject{|w| w.empty? }
+].lazy
+  .map{|w| cleanup(w).gsub(/[%!^&$+;:>]+$/, '') }
+  .reject{|w| Reject.include?(w) })
+
+list = list.to_a.sort
+
+puts "Collected #{list.size} word(s)."
+
+File.open('etc/wordlist.txt', 'w') do |file|
+  list.each do |word|
+    file << word << "\n"
+  end
+end

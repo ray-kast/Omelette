@@ -1,6 +1,8 @@
 target/
 
 **/*.rs.bk
+
+etc/*.zip
 apikey.reddit.json
 apitok.reddit.json
 *.log

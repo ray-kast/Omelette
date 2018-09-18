@@ -1,0 +1,37 @@
+Changes from 2015.01.28 to 2016.06.26
+
+- updated to version 6.0.2 of the official 12Dicts package
+
+- change format of 2of12full.txt to include "second-class" column
+
+- various new files sent to me by Alan
+
+Changes from Version 2014.08.11 to 2015.01.28 (January 28, 2015)
+
+- marked inflected forms of some adjectives with a ! when they were
+  so uncommon that not there where not found in the Google Book's
+  corpus(1980-2008).
+
+- added note to why optimization is marked as uncountable
+
+Changes from Revision 5.0 to Version 2014.08.11 (August 11, 2014)
+
+- minor fixes to some of the files to correct errors
+
+Changes from Revision 2.0 to 4.0 (August 6, 2004)
+
+- updated to version 4.0 of the official 12Dicts package
+
+- added 2of4brif.txt, 3esl.txt, and 5desk.txt from the official package
+
+Changes from Revision 2.0 to 2.0b (October 10, 2000)
+
+- Renamed 2of12infl.txt to 2of12id.txt
+
+Changes from Revision 1.0 to 2.0 (October 9, 2000)
+
+- several files were updated due to a new version of the offical
+  package
+
+- New file, 2of12infl.txt, added.
+
