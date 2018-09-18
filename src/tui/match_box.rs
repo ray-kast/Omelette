@@ -37,8 +37,10 @@ impl<'a> MatchBox<'a> {
   }
 
   pub fn set_highlighted(&mut self, val: bool) {
-    self.highlighted = val;
-    self.render();
+    if self.revealed {
+      self.highlighted = val;
+      self.render();
+    }
   }
 
   fn displayed_str(&self) -> &str {
@@ -67,7 +69,6 @@ impl<'a> ElementCore for MatchBox<'a> {
   }
 
   fn arrange_impl(&mut self, space: Rect) {
-    // TODO: these shouldn't be in arrange
     nc::wresize(self.win, 1, self.form.full.len() as i32);
     nc::mvwin(self.win, space.pos.y, space.pos.x);
   }

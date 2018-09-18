@@ -16,7 +16,7 @@ mod word_list;
 use rand::prelude::*;
 use regex::Regex;
 use std::{
-  collections::HashMap,
+  collections::{HashMap, HashSet},
   fs::File,
   io::{self, prelude::*},
   panic,
@@ -63,42 +63,56 @@ fn main() {
     &mut File::open("etc/words.json").expect("wordlist not found"),
   );
 
+  let mut len: Option<usize> = None;
+
   loop {
     let key;
     let set = {
-      let mut len: usize;
-      let keys = loop {
-        let mut len_str = String::new();
+      let ids = loop {
+        if let None = len {
+          let mut len_str = String::new();
 
-        write!(io::stderr(), "word length: ").unwrap();
-        io::stderr().flush().unwrap();
+          write!(io::stderr(), "word length: ").unwrap();
+          io::stderr().flush().unwrap();
 
-        if io::stdin().read_line(&mut len_str).unwrap() == 0 {
-          writeln!(io::stderr(), "").unwrap();
-          return;
+          if io::stdin().read_line(&mut len_str).unwrap() == 0 {
+            writeln!(io::stderr(), "").unwrap();
+            return;
+          }
+
+          len = Some(match len_str.trim().parse() {
+            Ok(l) => l,
+            Err(e) => {
+              writeln!(io::stderr(), "invalid number: {}", e).unwrap();
+              continue;
+            }
+          });
         }
 
-        len = match len_str.trim().parse() {
-          Ok(l) => l,
-          Err(e) => {
-            writeln!(io::stderr(), "invalid number: {}", e).unwrap();
-            continue;
-          }
-        };
+        let _len = len.unwrap();
 
-        match words.get_set_keys(&len) {
+        match words.get_set_keys(&_len) {
           Some(k) => break k,
           None => {
-            writeln!(io::stderr(), "no words found of length {}", len).unwrap();
+            writeln!(io::stderr(), "no words found of length {}", _len)
+              .unwrap();
+            len = None;
             continue;
           }
         }
       };
 
-      key = &keys[rand::thread_rng().gen_range(0, keys.len())];
+      let id = ids[rand::thread_rng().gen_range(0, ids.len())];
 
-      words.get_set(key).unwrap()
+      let (_key, _set) = words.get_set(id).unwrap();
+
+      key = _key;
+
+      _set
     };
+
+    let mut remain: HashSet<&String> =
+      set.iter().map(|i| &words.get_form(*i).unwrap().0).collect();
 
     let win = nc::initscr();
     nc::start_color();
@@ -115,22 +129,40 @@ fn main() {
 
     let word_box = el::wrap(WordBox::new(key.clone(), ghost_pair));
 
-    let mut match_boxes: HashMap<String, _> = HashMap::new();
+    let mut match_boxes: HashMap<usize, Vec<_>> = HashMap::new();
 
-    for word in set {
-      let form = words.get_form(word).unwrap();
-      match_boxes
-        .insert(word.to_string(), el::wrap(MatchBox::new(form, hl_pair)));
+    let mut match_box_dict: HashMap<
+      &String,
+      &Vec<el::ElemWrapper<MatchBox>>,
+    > = HashMap::new();
+
+    for id in set {
+      let (_, forms) = words.get_form(*id).unwrap();
+      match_boxes.insert(
+        *id,
+        forms
+          .iter()
+          .map(|form| el::wrap(MatchBox::new(form, hl_pair)))
+          .collect(),
+      );
+    }
+
+    for id in set {
+      let (word, _) = words.get_form(*id).unwrap();
+      match_box_dict.insert(word, match_boxes.get(id).unwrap());
     }
 
     let match_box_panel = el::wrap(WrapBox::new(
-      set.iter().map(|f| el::add_ref(&match_boxes[f])),
+      set
+        .iter()
+        .flat_map(|i| &match_boxes[i])
+        .map(|b| el::add_ref(b)),
       WrapMode::Cols,
       WrapAlign::Begin,
       3,
     ));
 
-    let mut hl_match_box: Option<el::ElemWrapper<MatchBox>> = None;
+    let mut hl_match_boxes: Option<&Vec<el::ElemWrapper<MatchBox>>> = None;
 
     let center_test = el::wrap(TestView::new(
       el::add_ref(&word_box),
@@ -141,23 +173,28 @@ fn main() {
 
     ui_root.resize();
 
-    loop {
+    while remain.len() > 0 {
       match nc::wgetch(win) {
         0x04 => {
           nc::endwin(); // TODO: break out of the outer loop instead
           return;
         } // EOT
         0x09 => word_box.borrow_mut().shuffle(), // HT
-        0x17 => word_box.borrow_mut().clear(),   // ETB
-        // TODO: capture escape sequences
-        0x1B => break, // ESC
+        0x17 => word_box.borrow_mut().clear(),   // ETB (ctrl+bksp)
+        0x1B => {
+          // ESC
+          len = None;
+          break;
+        }
         0x0A => {
           // EOL
-          match hl_match_box {
-            Some(ref b) => {
-              let mut b = b.borrow_mut();
+          match hl_match_boxes {
+            Some(b) => {
+              for b in b {
+                let mut b = b.borrow_mut();
 
-              b.set_highlighted(false);
+                b.set_highlighted(false);
+              }
             }
             None => {}
           }
@@ -165,16 +202,20 @@ fn main() {
           {
             let mut word_box = word_box.borrow_mut();
 
-            match match_boxes.get(word_box.buf()) {
+            remain.remove(word_box.buf());
+
+            match match_box_dict.get(word_box.buf()) {
               Some(b) => {
-                let mut b_ref = b.borrow_mut();
+                hl_match_boxes = Some(b);
 
-                if b_ref.revealed() {
-                  b_ref.set_highlighted(true);
+                for b in *b {
+                  let mut b_ref = b.borrow_mut();
 
-                  hl_match_box = Some(b.clone());
-                } else {
-                  b_ref.set_revealed(true);
+                  if b_ref.revealed() {
+                    b_ref.set_highlighted(true);
+                  } else {
+                    b_ref.set_revealed(true);
+                  }
                 }
               }
               None => (),
@@ -183,11 +224,11 @@ fn main() {
             word_box.clear();
           }
         }
-        0x7F => word_box.borrow_mut().del_left(), // DEL
+        0x7F => word_box.borrow_mut().del_left(), // DEL (bksp)
         nc::KEY_LEFT => word_box.borrow_mut().left(),
         nc::KEY_RIGHT => word_box.borrow_mut().right(),
         nc::KEY_HOME => word_box.borrow_mut().home(),
-        nc::KEY_BACKSPACE => word_box.borrow_mut().del_left(),
+        nc::KEY_BACKSPACE => word_box.borrow_mut().del_left(), // (shift+bksp)
         nc::KEY_DC => word_box.borrow_mut().del_right(),
         nc::KEY_END => word_box.borrow_mut().end(),
         nc::KEY_RESIZE => ui_root.resize(),

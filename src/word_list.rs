@@ -2,10 +2,11 @@ use serde::{de, Deserialize, Deserializer};
 use serde_json;
 use std::{collections::HashMap, fmt, io::prelude::*};
 
+#[derive(Deserialize)]
 pub struct WordList {
-  forms: HashMap<String, WordlistForm>,
-  set_keys: HashMap<usize, Vec<String>>,
-  sets: HashMap<String, Vec<String>>,
+  forms: Vec<(String, Vec<WordlistForm>)>, // (norm, [forms])
+  sets: Vec<(String, Vec<usize>)>,         // [(depermuted, [form_idx])]
+  set_keys: HashMap<usize, Vec<usize>>,    // len -> [set_idx]
 }
 
 impl WordList {
@@ -13,45 +14,19 @@ impl WordList {
   where
     R: Read,
   {
-    #[derive(Deserialize)]
-    struct SerializedForm {
-      forms: Option<HashMap<String, WordlistForm>>,
-      sets: Option<HashMap<usize, HashMap<String, Vec<String>>>>,
-    }
-
-    let mut value: SerializedForm = serde_json::from_reader(reader).unwrap();
-
-    let mut set_keys: HashMap<usize, Vec<String>> = HashMap::new();
-    let mut sets: HashMap<String, Vec<String>> = HashMap::new();
-
-    for (len, map) in value.sets.take().unwrap() {
-      let mut keys = Vec::new();
-
-      for (key, set) in map {
-        keys.push(key.clone());
-        sets.insert(key, set);
-      }
-
-      set_keys.insert(len, keys);
-    }
-
-    Self {
-      forms: value.forms.take().unwrap(),
-      set_keys,
-      sets,
-    }
+    serde_json::from_reader(reader).unwrap()
   }
 
-  pub fn get_form(&self, word: &str) -> Option<&WordlistForm> {
-    self.forms.get(word)
+  pub fn get_form(&self, id: usize) -> Option<&(String, Vec<WordlistForm>)> {
+    self.forms.get(id)
   }
 
-  pub fn get_set_keys(&self, len: &usize) -> Option<&Vec<String>> {
+  pub fn get_set_keys(&self, len: &usize) -> Option<&Vec<usize>> {
     self.set_keys.get(len)
   }
 
-  pub fn get_set(&self, key: &str) -> Option<&Vec<String>> {
-    self.sets.get(key)
+  pub fn get_set(&self, id: usize) -> Option<&(String, Vec<usize>)> {
+    self.sets.get(id)
   }
 }
 
