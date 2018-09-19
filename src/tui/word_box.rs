@@ -9,12 +9,14 @@ pub struct WordBox {
   cur: usize,
   buf: String,
   ghost_buf: String,
+  bad: bool,
   key: String,
   ghost_pair: i32,
+  bad_ghost_pair: i32,
 }
 
 impl WordBox {
-  pub fn new(key: String, ghost_pair: i32) -> Self {
+  pub fn new(key: String, ghost_pair: i32, bad_ghost_pair: i32) -> Self {
     let ghost_buf = key.clone();
 
     Self {
@@ -23,13 +25,25 @@ impl WordBox {
       cur: 0,
       buf: String::new(),
       ghost_buf,
+      bad: false,
       key,
       ghost_pair,
+      bad_ghost_pair,
     }
   }
 
   pub fn buf(&self) -> &String {
     &self.buf
+  }
+
+  pub fn set_bad(&mut self, val: bool) {
+    if self.bad == val {
+      return;
+    }
+
+    self.bad = val;
+
+    self.render();
   }
 
   fn remove(&mut self, at: usize) {
@@ -53,10 +67,13 @@ impl WordBox {
     }
   }
 
-  pub fn clear(&mut self) {
+  pub fn clear(&mut self, reset_bad: bool) {
     self.ghost_buf.insert_str(0, &self.buf);
     self.buf.clear();
     self.cur = 0;
+    if reset_bad {
+      self.bad = false;
+    }
     self.render();
   }
 
@@ -126,6 +143,14 @@ impl WordBox {
 
     self.render();
   }
+
+  pub fn sort(&mut self) {
+    let mut chars: Vec<_> = self.ghost_buf.chars().collect();
+    chars.sort();
+    self.ghost_buf = chars.into_iter().collect();
+
+    self.render();
+  }
 }
 
 impl ElementCore for WordBox {
@@ -154,7 +179,11 @@ impl ElementCore for WordBox {
       nc::mvwaddch(self.win, 0, (i * 2) as i32, ch as u32);
     }
 
-    let pair = nc::COLOR_PAIR(self.ghost_pair as i16);
+    let pair = nc::COLOR_PAIR(if self.bad {
+      self.bad_ghost_pair
+    } else {
+      self.ghost_pair
+    } as i16);
 
     nc::wattr_on(self.win, pair);
 

@@ -124,10 +124,14 @@ fn main() {
     nc::init_pair(ghost_pair as i16, 2, 0);
     // nc::init_extended_pair(ghost_pair, 2, 0);
 
-    let hl_pair: i32 = 2;
+    let bad_ghost_pair: i32 = 2;
+    nc::init_pair(bad_ghost_pair as i16, 1, 0);
+
+    let hl_pair: i32 = 3;
     nc::init_pair(hl_pair as i16, 2, 0);
 
-    let word_box = el::wrap(WordBox::new(key.clone(), ghost_pair));
+    let word_box =
+      el::wrap(WordBox::new(key.clone(), ghost_pair, bad_ghost_pair));
 
     let mut match_boxes: HashMap<usize, Vec<_>> = HashMap::new();
 
@@ -176,11 +180,12 @@ fn main() {
     while remain.len() > 0 {
       match nc::wgetch(win) {
         0x04 => {
+          // EOT
           nc::endwin(); // TODO: break out of the outer loop instead
           return;
-        } // EOT
+        }
         0x09 => word_box.borrow_mut().shuffle(), // HT
-        0x17 => word_box.borrow_mut().clear(),   // ETB (ctrl+bksp)
+        0x17 => word_box.borrow_mut().clear(true),   // ETB (ctrl+bksp)
         0x1B => {
           // ESC
           len = None;
@@ -207,6 +212,7 @@ fn main() {
             match match_box_dict.get(word_box.buf()) {
               Some(b) => {
                 hl_match_boxes = Some(b);
+                word_box.set_bad(false);
 
                 for b in *b {
                   let mut b_ref = b.borrow_mut();
@@ -218,18 +224,22 @@ fn main() {
                   }
                 }
               }
-              None => (),
+              None => {
+                let bad = word_box.buf().len() > 0;
+                word_box.set_bad(bad);
+              }
             }
 
-            word_box.clear();
+            word_box.clear(false);
           }
         }
         0x7F => word_box.borrow_mut().del_left(), // DEL (bksp)
         nc::KEY_LEFT => word_box.borrow_mut().left(),
         nc::KEY_RIGHT => word_box.borrow_mut().right(),
         nc::KEY_HOME => word_box.borrow_mut().home(),
-        nc::KEY_BACKSPACE => word_box.borrow_mut().del_left(), // (shift+bksp)
+        nc::KEY_BACKSPACE => word_box.borrow_mut().clear(true), // (shift+bksp/ctrl+bksp)
         nc::KEY_DC => word_box.borrow_mut().del_right(),
+        nc::KEY_BTAB => word_box.borrow_mut().sort(), // (shift+tab)
         nc::KEY_END => word_box.borrow_mut().end(),
         nc::KEY_RESIZE => ui_root.resize(),
         ch => {

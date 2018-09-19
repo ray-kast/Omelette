@@ -10,6 +10,20 @@ censored***.  I have plans to allow blacklisting words, but I have not gotten
 there yet, so if you want to run the game as it currently is, play at your own
 risk.
 
+## Controls
+
+Aside from basic text-editing controls for the word box, the following is a list
+of controls for the game as it currently stands (assuming an xterm-like console):
+
+| Key | Command |
+|-:|:-|
+| `Ctrl+D`    | Quit the application. |
+| `Tab`       | Shuffle the remaining letters. |
+| `Ctrl+Bksp` | Clear the word box. |
+| `Esc`       | Pick a new word. |
+| `Enter`     | Submit your guess. |
+| `Shift+Tab` | Sort the remaining letters alphabetically. |
+
 ## `tools/gen-words`
 
 If you have a word list and want to use it with Omelette, the source tree inside
