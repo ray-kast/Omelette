@@ -28,7 +28,7 @@ of controls for the game as it currently stands (assuming an xterm-like console)
 
 If you have a word list and want to use it with Omelette, the source tree inside
 `tools/gen-words` can be built and run to generate a JSON word list file from
-a plain text file containing the words to use, separated by whitespace.
+a plain text file containing the words to use, separated by newlines.
 
 ## `tools/scrape-words`
 

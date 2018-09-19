@@ -17,10 +17,10 @@ use std::{
   str,
   sync::{
     atomic::{AtomicUsize, Ordering},
-    mpsc::{channel, Sender},
+    mpsc::channel,
     Arc,
   },
-  time::Instant
+  time::Instant,
 };
 use thread_pool::ThreadPool;
 
@@ -65,7 +65,7 @@ static MIN_LEN: usize = 4;
 static MAX_LEN: usize = 8;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct Normalized(String); // Used as a string with nonword character stripped
+struct Normalized(String); // Used as a string with nonword characters stripped
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Depermuted(String); // Used as a Normalized with its characters sorted
 
@@ -183,22 +183,29 @@ fn stage_2<'a>(s1: &'a Arc<Stage1>) -> Stage2<'a> {
   let (set_tx, set_rx) = channel();
 
   let done = Arc::new(AtomicUsize::new(0));
+  let total = Arc::new(AtomicUsize::new(0));
 
-  {
-    let worker: ThreadPool<_> = ThreadPool::new(
-      (0..10)
-        .map(|_| (Arc::clone(s1), done.clone(), set_tx.clone()))
-        .collect(),
-      |_id,
-       (s1, done, set_tx): &(Arc<Stage1>, Arc<AtomicUsize>, Sender<_>),
-       (depermuted, count): (Depermuted, CharCounts)| {
-        let i = done.fetch_add(1, Ordering::Relaxed);
-        if i % 10 == 0 {
-          print!("\r\x1b[2K({}) {}", i, &depermuted.0);
-          io::stdout().flush().unwrap();
-        }
+  let start = Instant::now();
 
-        let mut list: Vec<_> = s1
+  let worker: ThreadPool<_> = ThreadPool::new(
+    (0..10)
+      .map(|_| (Arc::clone(s1), done.clone(), total.clone(), set_tx.clone()))
+      .collect(),
+    |_id,
+     (s1, done, total, set_tx),
+     (depermuted, count): (Depermuted, CharCounts)| {
+      let i = done.fetch_add(1, Ordering::Relaxed);
+      if i % 10 == 0 {
+        print!(
+          "\r\x1b[2K({}/{}) {}",
+          i,
+          total.load(Ordering::Relaxed),
+          &depermuted.0
+        );
+        io::stdout().flush().unwrap();
+      }
+
+      let mut list: Vec<_> = s1
           .valid_subwords
           .iter()
           .filter(|deperm2| {
@@ -208,29 +215,38 @@ fn stage_2<'a>(s1: &'a Arc<Stage1>) -> Stage2<'a> {
           .flat_map(|d| s1.permutations[d].clone()) // TODO: can I go back to borrowing this?
           .collect();
 
-        list.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then(a.0.cmp(&b.0)));
+      list.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then(a.0.cmp(&b.0)));
 
-        set_tx
-          .send((depermuted, list))
-          .expect("failed to send result");
-      },
-    );
+      set_tx
+        .send((depermuted, list))
+        .expect("failed to send result");
+    },
+  );
 
-    for len in MIN_LEN..MAX_LEN + 1 {
-      let mut keys: Vec<&Depermuted> = Vec::new();
+  for len in MIN_LEN..MAX_LEN + 1 {
+    let mut keys: Vec<&Depermuted> = Vec::new();
 
-      for (_, depermuted) in s1.len_groups[&len].iter().enumerate() {
-        worker.queue((depermuted.clone(), s1.counts[depermuted].clone()));
-        keys.push(depermuted);
-      }
+    total.fetch_add(s1.len_groups[&len].len(), Ordering::Relaxed);
 
-      set_keys.insert(len, keys);
+    for (_, depermuted) in s1.len_groups[&len].iter().enumerate() {
+      worker.queue((depermuted.clone(), s1.counts[depermuted].clone()));
+      keys.push(depermuted);
     }
 
-    worker.join();
-
-    println!();
+    set_keys.insert(len, keys);
   }
+
+  worker.join();
+
+  let end = Instant::now();
+  let time = end - start;
+
+  println!(
+    "\r\x1b[2K{} processed in {}.{:02}s",
+    done.load(Ordering::Acquire),
+    time.as_secs(),
+    time.subsec_millis() / 10
+  );
 
   for (depermuted, list) in set_rx.try_iter() {
     for norm in &list {

@@ -1,7 +1,7 @@
 use std::{
   collections::HashSet,
   sync::{
-    mpsc::{channel, Receiver, Sender},
+    mpsc::{channel, Sender},
     Arc, Mutex,
   },
   thread::{self, JoinHandle},
