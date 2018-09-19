@@ -17,6 +17,8 @@ Dest = 'etc/'
 
 TwoOf12 = File.join(Source, 'American', '2of12.txt')
 TwoOf12Inf = File.join(Source, 'American', '2of12inf.txt')
+ThreeEsl = File.join(Source, 'American', '3esl.txt')
+ThreeOf6All = File.join(Source, 'International', '3of6all.txt')
 ThreeOf6Game = File.join(Source, 'International', '3of6game.txt')
 Neol2016 = File.join(Source, 'Special', 'neol2016.txt')
 
@@ -25,6 +27,8 @@ Reject = Set.new(%w[b c d e f g h i j k l m n o p q r s t u v w x y z])
 list = Set.new([
   *lines(TwoOf12),
   *lines(TwoOf12Inf),
+  *lines(ThreeEsl),    # TODO: keep an eye on these two
+  *lines(ThreeOf6All), # TODO: keep an eye on these two
   *lines(ThreeOf6Game),
   *lines(Neol2016)
     .flat_map{|l| l.split(',') }
@@ -34,6 +38,15 @@ list = Set.new([
 ].lazy
   .map{|w| cleanup(w).gsub(/[%!^&$+;:>]+$/, '') }
   .reject{|w| Reject.include?(w) })
+  .reject do |word|
+    stripped = word.gsub(/\W+/, "")
+    stripped.downcase!
+
+    next true if stripped.empty?
+
+    (stripped !~ /[aeiouy]/ && stripped.size < 3)
+      .tap{|c| puts "dropping #{word.inspect}" if c }
+  end
 
 list = list.to_a.sort
 
