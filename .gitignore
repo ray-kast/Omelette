@@ -4,6 +4,11 @@ target/
 
 etc/*12dicts/**/*.html
 etc/*.zip
+etc/wordlist.txt
+
 apikey.reddit.json
 apitok.reddit.json
 *.log
+
+*.sqlite3
+/tools/gen-words/src/schema.rs

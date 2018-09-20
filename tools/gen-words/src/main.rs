@@ -1,19 +1,20 @@
+extern crate dotenv;
 extern crate regex;
-extern crate serde;
-extern crate serde_json;
 
+#[macro_use]
+extern crate diesel;
 #[macro_use]
 extern crate lazy_static;
-#[macro_use]
-extern crate serde_derive;
 
+mod models;
+mod schema;
 mod thread_pool;
 
 use regex::Regex;
 use std::{
   collections::{HashMap, HashSet},
   fs::File,
-  io::{self, prelude::*, BufReader, BufWriter},
+  io::{self, prelude::*, BufReader},
   str,
   sync::{
     atomic::{AtomicUsize, Ordering},
@@ -24,14 +25,10 @@ use std::{
 };
 use thread_pool::ThreadPool;
 
-#[derive(Clone, Serialize)]
-struct WordlistForm(String, String); // (blanked, full)
-
-#[derive(Serialize)]
-struct Wordlist {
-  forms: Vec<(String, Vec<WordlistForm>)>, // (norm, [forms])
-  sets: Vec<(String, Vec<usize>)>,         // [(depermuted, [form_idx])]
-  set_keys: HashMap<usize, Vec<usize>>,    // len -> [set_idx]
+#[derive(Clone)]
+struct WordlistForm {
+  blanked: String,
+  full: String,
 }
 
 type CharCounts = HashMap<char, usize>;
@@ -131,7 +128,10 @@ fn stage_1() -> Stage1 {
     match forms.entry(normalized.clone()) {
       Vacant(v) => v.insert(Vec::new()),
       Occupied(o) => o.into_mut(),
-    }.push(WordlistForm(word.clone(), blank));
+    }.push(WordlistForm {
+      blanked: blank,
+      full: word.clone(),
+    });
 
     let mut depermuted: Vec<_> = normalized.0.chars().collect();
     depermuted.sort();
@@ -272,51 +272,107 @@ fn main() {
 
   forms.retain(|k, _| s2.used_words.contains(k));
 
-  let list = {
-    let form_vec: Vec<(Normalized, Vec<WordlistForm>)>;
-    let set_vec: Vec<(Depermuted, Vec<usize>)>;
-    let set_key_map: HashMap<usize, Vec<usize>>;
+  {
+    use diesel::{insert_into, prelude::*, sqlite::SqliteConnection};
+    use dotenv::dotenv;
+    use models::*;
+    use std::env;
+
+    println!("collecting models...");
+
+    let mut insert_form_ids: Vec<FormId> = Vec::new();
+    let mut insert_forms: Vec<Form> = Vec::new();
+    let mut insert_set_ids: Vec<SetId> = Vec::new();
+    let mut insert_sets: Vec<Set> = Vec::new();
+    let mut insert_set_keys: Vec<SetKey> = Vec::new();
+
+    for (i, (norm, forms)) in forms.iter().enumerate() {
+      insert_form_ids.push(FormId {
+        norm: &norm.0,
+        id: i as i32,
+      });
+
+      for form in forms {
+        let oid = insert_forms.len() as i32;
+        insert_forms.push(Form {
+          oid,
+          id: i as i32,
+          blank: &form.blanked,
+          full: &form.full,
+        });
+      }
+    }
+
+    for (i, (deperm, norms)) in s2.sets.iter().enumerate() {
+      insert_set_ids.push(SetId {
+        key: &deperm.0,
+        id: i as i32,
+      });
+
+      for norm in norms {
+        let oid = insert_sets.len() as i32;
+        insert_sets.push(Set {
+          oid,
+          id: i as i32,
+          norm: &norm.0,
+        });
+      }
+    }
+
+    for (len, deperms) in &s2.set_keys {
+      for deperm in deperms {
+        let oid = insert_set_keys.len() as i32;
+        insert_set_keys.push(SetKey {
+          oid,
+          len: *len as i32,
+          key: &deperm.0,
+        });
+      }
+    }
+
+    println!("committing to database...");
+
+    dotenv().ok();
+
+    let url = env::var("DATABASE_URL").unwrap();
+
+    let conn = SqliteConnection::establish(&url).unwrap();
 
     {
-      form_vec = forms.into_iter().collect();
+      use schema::{
+        form_ids::dsl::*, forms::dsl::*, set_ids::dsl::*, set_keys::dsl::*,
+        sets::dsl::*,
+      };
 
-      let forms: HashMap<_, _> = form_vec
-        .iter()
-        .enumerate()
-        .map(|(i, (n, _))| (n, i))
-        .collect();
+      println!("  form_ids");
+      insert_into(form_ids)
+        .values(&insert_form_ids)
+        .execute(&conn)
+        .unwrap();
 
-      set_vec = s2
-        .sets
-        .into_iter()
-        .map(|(d, n)| (d, n.into_iter().map(|n| forms[&n]).collect()))
-        .collect();
+      println!("  forms");
+      insert_into(forms)
+        .values(&insert_forms)
+        .execute(&conn)
+        .unwrap();
 
-      let sets: HashMap<_, _> = set_vec
-        .iter()
-        .enumerate()
-        .map(|(i, (d, _))| (d, i))
-        .collect();
+      println!("  set_ids");
+      insert_into(set_ids)
+        .values(&insert_set_ids)
+        .execute(&conn)
+        .unwrap();
 
-      set_key_map = s2
-        .set_keys
-        .into_iter()
-        .map(|(l, d)| (l, d.into_iter().map(|d| sets[d]).collect()))
-        .collect();
+      println!("  sets");
+      insert_into(sets)
+        .values(&insert_sets)
+        .execute(&conn)
+        .unwrap();
+
+      println!("  set_keys");
+      insert_into(set_keys)
+        .values(&insert_set_keys)
+        .execute(&conn)
+        .unwrap();
     }
-
-    Wordlist {
-      forms: form_vec.into_iter().map(|(n, f)| (n.0, f)).collect(),
-      sets: set_vec.into_iter().map(|(d, n)| (d.0, n)).collect(),
-      set_keys: set_key_map,
-    }
-  };
-
-  {
-    let file =
-      File::create("etc/words.json").expect("couldn't create output file");
-    let file = BufWriter::new(&file);
-
-    serde_json::to_writer(file, &list).expect("failed to write JSON");
   }
 }

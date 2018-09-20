@@ -1,0 +1,1 @@
+../tools/gen-words/src/schema.rs

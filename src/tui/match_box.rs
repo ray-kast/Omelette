@@ -2,24 +2,24 @@ use nc;
 use tui::prelude_internal::*;
 use word_list::WordlistForm;
 
-pub struct MatchBox<'a> {
+pub struct MatchBox {
   coredata: ElementCoreData,
   win: nc::WINDOW,
-  form: &'a WordlistForm,
+  form: WordlistForm,
   revealed: bool,
   highlighted: bool,
   hl_pair: i32,
 }
 
-impl<'a> MatchBox<'a> {
-  pub fn new(form: &'a WordlistForm, hl_pair: i32) -> Self {
+impl MatchBox {
+  pub fn new(form: WordlistForm, hl_pair: i32) -> Self {
     Self {
       coredata: Default::default(),
       win: nc::newwin(1, 1, 0, 0),
       form,
       revealed: false,
       highlighted: false,
-      hl_pair
+      hl_pair,
     }
   }
 
@@ -52,7 +52,7 @@ impl<'a> MatchBox<'a> {
   }
 }
 
-impl<'a> ElementCore for MatchBox<'a> {
+impl ElementCore for MatchBox {
   fn get_coredata(&self) -> &ElementCoreData {
     &self.coredata
   }

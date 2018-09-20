@@ -1,3 +1,4 @@
+// TODO: I could probably remove serde altogether
 extern crate ncurses as nc;
 extern crate rand;
 extern crate regex;
@@ -5,11 +6,15 @@ extern crate serde;
 extern crate serde_json;
 
 #[macro_use]
+extern crate diesel;
+#[macro_use]
 extern crate lazy_static;
-
 #[macro_use]
 extern crate serde_derive;
 
+// TODO: move the models and schema modules into the word_list module
+mod models;
+mod schema;
 mod tui;
 mod word_list;
 
@@ -59,16 +64,14 @@ fn main() {
     nc::endwin();
   }).unwrap();
 
-  let words = WordList::new(
-    &mut File::open("etc/words.json").expect("wordlist not found"),
-  );
+  let words = WordList::new("etc/words.sqlite3");
 
   let mut len: Option<usize> = None;
 
   loop {
     let key;
     let set = {
-      let ids = loop {
+      let mut keys = loop {
         if let None = len {
           let mut len_str = String::new();
 
@@ -91,28 +94,27 @@ fn main() {
 
         let _len = len.unwrap();
 
-        match words.get_set_keys(&_len) {
-          Some(k) => break k,
-          None => {
+        let keys = words.get_set_keys(&_len);
+
+        match keys.len() {
+          0 => {
             writeln!(io::stderr(), "no words found of length {}", _len)
               .unwrap();
             len = None;
             continue;
           }
+          _ => break keys,
         }
       };
 
-      let id = ids[rand::thread_rng().gen_range(0, ids.len())];
+      let nkeys = keys.len();
 
-      let (_key, _set) = words.get_set(id).unwrap();
+      key = keys.remove(rand::thread_rng().gen_range(0, nkeys));
 
-      key = _key;
-
-      _set
+      words.get_set(&key)
     };
 
-    let mut remain: HashSet<&String> =
-      set.iter().map(|i| &words.get_form(*i).unwrap().0).collect();
+    let mut remain: HashSet<&String> = set.iter().collect();
 
     let win = nc::initscr();
     nc::start_color();
@@ -133,27 +135,18 @@ fn main() {
     let word_box =
       el::wrap(WordBox::new(key.clone(), ghost_pair, bad_ghost_pair));
 
-    let mut match_boxes: HashMap<usize, Vec<_>> = HashMap::new();
+    let mut match_boxes: HashMap<&String, Vec<_>> = HashMap::new();
 
-    let mut match_box_dict: HashMap<
-      &String,
-      &Vec<el::ElemWrapper<MatchBox>>,
-    > = HashMap::new();
+    for norm in &set {
+      let forms = words.get_form(norm);
 
-    for id in set {
-      let (_, forms) = words.get_form(*id).unwrap();
       match_boxes.insert(
-        *id,
+        norm,
         forms
-          .iter()
+          .into_iter()
           .map(|form| el::wrap(MatchBox::new(form, hl_pair)))
           .collect(),
       );
-    }
-
-    for id in set {
-      let (word, _) = words.get_form(*id).unwrap();
-      match_box_dict.insert(word, match_boxes.get(id).unwrap());
     }
 
     let match_box_panel = el::wrap(WrapBox::new(
@@ -185,7 +178,7 @@ fn main() {
           return;
         }
         0x09 => word_box.borrow_mut().shuffle(), // HT
-        0x17 => word_box.borrow_mut().clear(true),   // ETB (ctrl+bksp)
+        0x17 => word_box.borrow_mut().clear(true), // ETB (ctrl+bksp)
         0x1B => {
           // ESC
           len = None;
@@ -209,12 +202,12 @@ fn main() {
 
             remain.remove(word_box.buf());
 
-            match match_box_dict.get(word_box.buf()) {
+            match match_boxes.get(word_box.buf()) {
               Some(b) => {
                 hl_match_boxes = Some(b);
                 word_box.set_bad(false);
 
-                for b in *b {
+                for b in b {
                   let mut b_ref = b.borrow_mut();
 
                   if b_ref.revealed() {
