@@ -27,8 +27,8 @@ Reject = Set.new(%w[b c d e f g h i j k l m n o p q r s t u v w x y z])
 list = Set.new([
   *lines(TwoOf12),
   *lines(TwoOf12Inf),
-  *lines(ThreeEsl),    # TODO: keep an eye on these two
-  *lines(ThreeOf6All), # TODO: keep an eye on these two
+  *lines(ThreeEsl),
+  *lines(ThreeOf6All),
   *lines(ThreeOf6Game),
   *lines(Neol2016)
     .flat_map{|l| l.split(',') }
@@ -37,7 +37,7 @@ list = Set.new([
     .reject{|w| w.empty? }
 ].lazy
   .map{|w| cleanup(w).gsub(/[%!^&$+;:>]+$/, '') }
-  .reject{|w| Reject.include?(w) })
+  .reject{|w| Reject.include?(w) || (w =~ /^(?:[^\p{Ll}]*|[^\p{Ll}]{2,}s)$|^-|[-.]$/).tap{|c| puts "rejecting #{w.inspect}" if c } }) # Note: .$ catches some acronyms as well, but this isn't really an issue
   .reject do |word|
     stripped = word.gsub(/\W+/, "")
     stripped.downcase!
@@ -52,6 +52,7 @@ list = list.to_a.sort
 
 puts "Collected #{list.size} word(s)."
 
+# TODO: make this configurable (or just print to $stdout)
 File.open('etc/wordlist.txt', 'w') do |file|
   list.each do |word|
     file << word << "\n"

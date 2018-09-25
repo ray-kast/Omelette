@@ -4,6 +4,8 @@ extern crate regex;
 #[macro_use]
 extern crate diesel;
 #[macro_use]
+extern crate error_chain;
+#[macro_use]
 extern crate lazy_static;
 
 mod models;
@@ -12,7 +14,8 @@ mod thread_pool;
 
 use regex::Regex;
 use std::{
-  collections::{HashMap, HashSet},
+  collections::{HashMap, HashSet, VecDeque},
+  env,
   fs::File,
   io::{self, prelude::*, BufReader},
   str,
@@ -24,6 +27,27 @@ use std::{
   time::Instant,
 };
 use thread_pool::ThreadPool;
+
+error_chain! {
+  foreign_links {
+    Diesel(diesel::result::Error);
+    DieselConnection(diesel::ConnectionError);
+    EnvVar(std::env::VarError);
+    Io(io::Error);
+  }
+
+  errors {
+    InvalidArg(expect: String) {
+      description("invalid arguments"),
+      display("invalid arguments: expected {}", expect),
+    }
+
+    ArgParse(msg: String) {
+      description("argument parsing failed"),
+      display("argument parsing failed: {}", msg),
+    }
+  }
+}
 
 #[derive(Clone)]
 struct WordlistForm {
@@ -80,15 +104,15 @@ struct Stage2<'a> {
   used_words: HashSet<Normalized>,
 }
 
-fn stage_1() -> Stage1 {
+fn stage_1(file: &str) -> Result<Stage1> {
   let mut words = Vec::new();
 
   {
-    let file = File::open("etc/wordlist.txt").expect("wordlist not found");
+    let file = File::open(file)?;
     let file = BufReader::new(&file);
 
     for line in file.lines() {
-      let line = line.expect("failed to read line");
+      let line = line?;
 
       words.push(line.trim().to_string());
     }
@@ -165,16 +189,16 @@ fn stage_1() -> Stage1 {
   println!("{} depermuted", permutations.len());
   println!("{} valid subword(s)", valid_subwords.len());
 
-  Stage1 {
+  Ok(Stage1 {
     permutations,
     counts,
     valid_subwords,
     len_groups,
     forms,
-  }
+  })
 }
 
-fn stage_2<'a>(s1: &'a Arc<Stage1>) -> Stage2<'a> {
+fn stage_2<'a>(s1: &'a Arc<Stage1>) -> Result<Stage2<'a>> {
   let mut sets: HashMap<Depermuted, Vec<Normalized>> = HashMap::new(); // TODO: can I go back to borrowing inside the vec?
   let mut set_keys: HashMap<usize, Vec<&Depermuted>> = HashMap::new();
 
@@ -256,17 +280,36 @@ fn stage_2<'a>(s1: &'a Arc<Stage1>) -> Stage2<'a> {
     sets.insert(depermuted, list);
   }
 
-  Stage2 {
+  Ok(Stage2 {
     sets,
     set_keys,
     used_words,
-  }
+  })
 }
 
-fn main() {
-  let s1 = Arc::new(stage_1());
+fn run() -> Result<()> {
+  let mut args: VecDeque<_> = env::args().collect();
+  args.pop_front(); // drop argv[0]
 
-  let s2 = stage_2(&s1);
+  fn parse_arg<T>(args: &mut VecDeque<String>, expect: &str) -> Result<T>
+  where
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::string::ToString,
+  {
+    match args.pop_front() {
+      Some(a) => a,
+      None => return Err(ErrorKind::InvalidArg(expect.into()).into()),
+    }.parse()
+      .map_err(|e: <T as std::str::FromStr>::Err| {
+        ErrorKind::ArgParse(e.to_string()).into()
+      })
+  }
+
+  let file: String = parse_arg(&mut args, "an input filename")?;
+
+  let s1 = Arc::new(stage_1(&file)?);
+
+  let s2 = stage_2(&s1)?;
 
   let mut forms = s1.forms.clone();
 
@@ -276,7 +319,6 @@ fn main() {
     use diesel::{insert_into, prelude::*, sqlite::SqliteConnection};
     use dotenv::dotenv;
     use models::*;
-    use std::env;
 
     println!("collecting models...");
 
@@ -334,9 +376,9 @@ fn main() {
 
     dotenv().ok();
 
-    let url = env::var("DATABASE_URL").unwrap();
+    let url = env::var("DATABASE_URL")?;
 
-    let conn = SqliteConnection::establish(&url).unwrap();
+    let conn = SqliteConnection::establish(&url)?;
 
     {
       use schema::{
@@ -347,32 +389,30 @@ fn main() {
       println!("  form_ids");
       insert_into(form_ids)
         .values(&insert_form_ids)
-        .execute(&conn)
-        .unwrap();
+        .execute(&conn)?;
 
       println!("  forms");
-      insert_into(forms)
-        .values(&insert_forms)
-        .execute(&conn)
-        .unwrap();
+      insert_into(forms).values(&insert_forms).execute(&conn)?;
 
       println!("  set_ids");
-      insert_into(set_ids)
-        .values(&insert_set_ids)
-        .execute(&conn)
-        .unwrap();
+      insert_into(set_ids).values(&insert_set_ids).execute(&conn)?;
 
       println!("  sets");
-      insert_into(sets)
-        .values(&insert_sets)
-        .execute(&conn)
-        .unwrap();
+      insert_into(sets).values(&insert_sets).execute(&conn)?;
 
       println!("  set_keys");
       insert_into(set_keys)
         .values(&insert_set_keys)
-        .execute(&conn)
-        .unwrap();
+        .execute(&conn)?;
     }
+  }
+
+  Ok(())
+}
+
+fn main() {
+  match run() {
+    Ok(_) => return,
+    Err(e) => writeln!(io::stderr(), "an error occurred: {}", e).unwrap(),
   }
 }

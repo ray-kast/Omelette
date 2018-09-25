@@ -15,9 +15,9 @@ extern crate unicode_normalization;
 extern crate url;
 
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate error_chain;
+#[macro_use]
+extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
 
