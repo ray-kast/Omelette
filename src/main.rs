@@ -129,11 +129,21 @@ fn main() {
     let bad_ghost_pair: i32 = 2;
     nc::init_pair(bad_ghost_pair as i16, 1, 0);
 
-    let hl_pair: i32 = 3;
+    let auto_ghost_pair: i32 = 3;
+    nc::init_pair(auto_ghost_pair as i16, 3, 0);
+
+    let reveal_pair: i32 = 4;
+    nc::init_pair(reveal_pair as i16, 3, 0);
+
+    let hl_pair: i32 = 5;
     nc::init_pair(hl_pair as i16, 2, 0);
 
-    let word_box =
-      el::wrap(WordBox::new(key.clone(), ghost_pair, bad_ghost_pair));
+    let word_box = el::wrap(WordBox::new(
+      key.clone(),
+      ghost_pair,
+      bad_ghost_pair,
+      auto_ghost_pair,
+    ));
 
     let mut match_boxes: HashMap<&String, Vec<_>> = HashMap::new();
 
@@ -144,7 +154,7 @@ fn main() {
         norm,
         forms
           .into_iter()
-          .map(|form| el::wrap(MatchBox::new(form, hl_pair)))
+          .map(|form| el::wrap(MatchBox::new(form, reveal_pair, hl_pair)))
           .collect(),
       );
     }
@@ -171,6 +181,7 @@ fn main() {
     ui_root.resize();
 
     while remain.len() > 0 {
+      // TODO: handle modifier keys better
       match nc::wgetch(win) {
         0x04 => {
           // EOT
@@ -181,20 +192,48 @@ fn main() {
         0x17 => word_box.borrow_mut().clear(true), // ETB (ctrl+bksp)
         0x1B => {
           // ESC
+
+          if let Some(b) = hl_match_boxes {
+            for b in b {
+              let mut b = b.borrow_mut();
+
+              b.set_style(MatchBoxStyle::Normal);
+            }
+          }
+
+          for boxes in match_boxes.values() {
+            for match_box in boxes {
+              let mut match_box = match_box.borrow_mut();
+
+              if !match_box.revealed() {
+                match_box.set_revealed(true);
+                match_box.set_style(MatchBoxStyle::Reveal);
+              }
+            }
+          }
+
+          word_box.borrow_mut().render_cur();
+
+          match nc::wgetch(win) {
+            0x04 => {
+              // EOT
+              nc::endwin(); // TODO: break out of the outer loop instead
+              return;
+            }
+            _ => {}
+          }
+
           len = None;
           break;
         }
         0x0A => {
           // EOL
-          match hl_match_boxes {
-            Some(b) => {
-              for b in b {
-                let mut b = b.borrow_mut();
+          if let Some(b) = hl_match_boxes {
+            for b in b {
+              let mut b = b.borrow_mut();
 
-                b.set_highlighted(false);
-              }
+              b.set_style(MatchBoxStyle::Normal);
             }
-            None => {}
           }
 
           {
@@ -211,9 +250,10 @@ fn main() {
                   let mut b_ref = b.borrow_mut();
 
                   if b_ref.revealed() {
-                    b_ref.set_highlighted(true);
+                    b_ref.set_style(MatchBoxStyle::Highlight);
                   } else {
                     b_ref.set_revealed(true);
+                    b_ref.set_style(MatchBoxStyle::Reveal);
                   }
                 }
               }
@@ -227,14 +267,22 @@ fn main() {
           }
         }
         0x7F => word_box.borrow_mut().del_left(), // DEL (bksp)
+        nc::KEY_DOWN => word_box.borrow_mut().end(),
+        nc::KEY_UP => word_box.borrow_mut().home(),
         nc::KEY_LEFT => word_box.borrow_mut().left(),
         nc::KEY_RIGHT => word_box.borrow_mut().right(),
         nc::KEY_HOME => word_box.borrow_mut().home(),
         nc::KEY_BACKSPACE => word_box.borrow_mut().clear(true), // (shift+bksp/ctrl+bksp)
         nc::KEY_DC => word_box.borrow_mut().del_right(),
-        nc::KEY_BTAB => word_box.borrow_mut().sort(), // (shift+tab)
+        nc::KEY_BTAB => {
+          let mut word_box = word_box.borrow_mut();
+          let val = !word_box.auto_sort();
+          word_box.set_auto_sort(val);
+        } // (shift+tab)
         nc::KEY_END => word_box.borrow_mut().end(),
         nc::KEY_RESIZE => ui_root.resize(),
+        0o1051 => word_box.borrow_mut().home(), // ctrl+left somehow?
+        0o1070 => word_box.borrow_mut().end(),  // ctrl+right somehow?
         ch => {
           let mut word_box = word_box.borrow_mut();
 

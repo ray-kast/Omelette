@@ -2,23 +2,31 @@ use nc;
 use tui::prelude_internal::*;
 use word_list::WordlistForm;
 
+pub enum MatchBoxStyle {
+  Normal,
+  Reveal,
+  Highlight,
+}
+
 pub struct MatchBox {
   coredata: ElementCoreData,
   win: nc::WINDOW,
   form: WordlistForm,
   revealed: bool,
-  highlighted: bool,
+  style: MatchBoxStyle,
+  reveal_pair: i32,
   hl_pair: i32,
 }
 
 impl MatchBox {
-  pub fn new(form: WordlistForm, hl_pair: i32) -> Self {
+  pub fn new(form: WordlistForm, reveal_pair: i32, hl_pair: i32) -> Self {
     Self {
       coredata: Default::default(),
       win: nc::newwin(1, 1, 0, 0),
       form,
       revealed: false,
-      highlighted: false,
+      style: MatchBoxStyle::Normal,
+      reveal_pair,
       hl_pair,
     }
   }
@@ -36,9 +44,9 @@ impl MatchBox {
     self.render();
   }
 
-  pub fn set_highlighted(&mut self, val: bool) {
+  pub fn set_style(&mut self, val: MatchBoxStyle) {
     if self.revealed {
-      self.highlighted = val;
+      self.style = val;
       self.render();
     }
   }
@@ -74,14 +82,22 @@ impl ElementCore for MatchBox {
   }
 
   fn render_impl(&mut self) {
-    if self.highlighted {
-      nc::wattr_on(self.win, nc::COLOR_PAIR(self.hl_pair as i16));
+    use MatchBoxStyle::*;
+
+    let pair = match self.style {
+      Normal => None,
+      Reveal => Some(self.reveal_pair),
+      Highlight => Some(self.hl_pair),
+    }.map(|p| nc::COLOR_PAIR(p as i16));
+
+    if let Some(pair) = pair {
+      nc::wattr_on(self.win, pair);
     }
 
     nc::mvwaddstr(self.win, 0, 0, self.displayed_str());
 
-    if self.highlighted {
-      nc::wattr_off(self.win, nc::COLOR_PAIR(self.hl_pair as i16));
+    if let Some(pair) = pair {
+      nc::wattr_off(self.win, pair);
     }
 
     nc::wrefresh(self.win);

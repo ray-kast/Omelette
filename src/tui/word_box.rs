@@ -10,13 +10,20 @@ pub struct WordBox {
   buf: String,
   ghost_buf: String,
   bad: bool,
+  auto_sort: bool,
   key: String,
   ghost_pair: i32,
   bad_ghost_pair: i32,
+  auto_ghost_pair: i32,
 }
 
 impl WordBox {
-  pub fn new(key: String, ghost_pair: i32, bad_ghost_pair: i32) -> Self {
+  pub fn new(
+    key: String,
+    ghost_pair: i32,
+    bad_ghost_pair: i32,
+    auto_ghost_pair: i32,
+  ) -> Self {
     let ghost_buf = key.clone();
 
     Self {
@@ -26,9 +33,11 @@ impl WordBox {
       buf: String::new(),
       ghost_buf,
       bad: false,
+      auto_sort: false,
       key,
       ghost_pair,
       bad_ghost_pair,
+      auto_ghost_pair,
     }
   }
 
@@ -46,24 +55,62 @@ impl WordBox {
     self.render();
   }
 
-  fn remove(&mut self, at: usize) {
-    self.ghost_buf.insert(0, self.buf.remove(at));
+  pub fn auto_sort(&self) -> bool {
+    self.auto_sort
   }
 
-  pub fn del_left(&mut self) {
-    if !self.buf.is_empty() {
-      self.cur = self.cur - 1;
-      let cur = self.cur;
-      self.remove(cur);
-      self.render();
+  pub fn set_auto_sort(&mut self, val: bool) {
+    self.auto_sort = val;
+
+    self.fix_ghost();
+    self.render();
+  }
+
+  fn fix_ghost(&mut self) {
+    if self.auto_sort {
+      let mut chars: Vec<_> = self.ghost_buf.chars().collect();
+      chars.sort();
+      self.ghost_buf = chars.into_iter().collect();
     }
   }
 
+  fn remove(&mut self, at: usize) {
+    self.ghost_buf.insert(0, self.buf.remove(at));
+    self.fix_ghost();
+  }
+
+  pub fn del_left(&mut self) {
+    if self.buf.is_empty() {
+      if self.bad {
+        self.bad = false;
+        self.render();
+      }
+    } else {
+      if self.cur > 0 {
+        self.cur = self.cur - 1;
+        let cur = self.cur;
+        self.remove(cur);
+        self.render();
+      } else if self.buf.len() == 1 {
+        self.remove(0);
+        self.render();
+      }
+    }
+
+  }
+
   pub fn del_right(&mut self) {
-    if !self.buf.is_empty() && self.cur < self.buf.len() {
-      let cur = self.cur;
-      self.remove(cur);
-      self.render();
+    if self.buf.is_empty() {
+      if self.bad {
+        self.bad = false;
+        self.render();
+      }
+    } else {
+      if self.cur < self.buf.len() {
+        let cur = self.cur;
+        self.remove(cur);
+        self.render();
+      }
     }
   }
 
@@ -74,6 +121,7 @@ impl WordBox {
     if reset_bad {
       self.bad = false;
     }
+    self.fix_ghost();
     self.render();
   }
 
@@ -97,6 +145,7 @@ impl WordBox {
     }
 
     if dirty {
+      self.fix_ghost();
       self.render();
     }
   }
@@ -143,14 +192,6 @@ impl WordBox {
 
     self.render();
   }
-
-  pub fn sort(&mut self) {
-    let mut chars: Vec<_> = self.ghost_buf.chars().collect();
-    chars.sort();
-    self.ghost_buf = chars.into_iter().collect();
-
-    self.render();
-  }
 }
 
 impl ElementCore for WordBox {
@@ -182,7 +223,11 @@ impl ElementCore for WordBox {
     let pair = nc::COLOR_PAIR(if self.bad {
       self.bad_ghost_pair
     } else {
-      self.ghost_pair
+      if self.auto_sort {
+        self.auto_ghost_pair
+      } else {
+        self.ghost_pair
+      }
     } as i16);
 
     nc::wattr_on(self.win, pair);
