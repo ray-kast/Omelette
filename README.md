@@ -5,6 +5,10 @@ much time playing a similar word game on my phone that I got fed up with the
 word list it was using and decided to write a version where I could specify the
 words.
 
+**A note on usage:** The game does not come with a pre-generated word list —
+before running it for the first time, you must generate one.  See [here](tools/gen-words/README.md)
+for more details.
+
 Fair warning — at the time of writing this readme, ***the wordlist IS NOT
 censored***.  I have plans to allow blacklisting words, but I have not gotten
 there yet, so if you want to run the game as it currently is, play at your own
