@@ -79,12 +79,19 @@ impl WordBox {
     self.fix_ghost();
   }
 
+  fn del_empty(&mut self) {
+    if self.auto_sort {
+      self.bad = false;
+      self.render();
+    } else if self.bad {
+      self.auto_sort = false;
+      self.render();
+    }
+  }
+
   pub fn del_left(&mut self) {
     if self.buf.is_empty() {
-      if self.bad {
-        self.bad = false;
-        self.render();
-      }
+      self.del_empty();
     } else {
       if self.cur > 0 {
         self.cur = self.cur - 1;
@@ -101,10 +108,7 @@ impl WordBox {
 
   pub fn del_right(&mut self) {
     if self.buf.is_empty() {
-      if self.bad {
-        self.bad = false;
-        self.render();
-      }
+      self.del_empty();
     } else {
       if self.cur < self.buf.len() {
         let cur = self.cur;
@@ -114,13 +118,13 @@ impl WordBox {
     }
   }
 
-  pub fn clear(&mut self, reset_bad: bool) {
+  pub fn clear(&mut self) {
+    if self.buf.is_empty() { // TODO: move this block elsewhere probably
+      self.del_empty();
+    }
     self.ghost_buf.insert_str(0, &self.buf);
     self.buf.clear();
     self.cur = 0;
-    if reset_bad {
-      self.bad = false;
-    }
     self.fix_ghost();
     self.render();
   }
@@ -178,6 +182,8 @@ impl WordBox {
   }
 
   pub fn shuffle(&mut self) {
+    self.auto_sort = false;
+
     let mut chars: Vec<_> = self.ghost_buf.chars().collect();
 
     self.ghost_buf.clear();
@@ -220,11 +226,11 @@ impl ElementCore for WordBox {
       nc::mvwaddch(self.win, 0, (i * 2) as i32, ch as u32);
     }
 
-    let pair = nc::COLOR_PAIR(if self.bad {
-      self.bad_ghost_pair
+    let pair = nc::COLOR_PAIR(if self.auto_sort {
+      self.auto_ghost_pair
     } else {
-      if self.auto_sort {
-        self.auto_ghost_pair
+      if self.bad {
+        self.bad_ghost_pair
       } else {
         self.ghost_pair
       }

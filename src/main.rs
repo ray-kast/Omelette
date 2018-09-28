@@ -182,6 +182,7 @@ fn main() {
 
     while remain.len() > 0 {
       // TODO: handle modifier keys better
+      // TODO: up and down should be history controls, not text editing controls
       match nc::wgetch(win) {
         0x04 => {
           // EOT
@@ -189,7 +190,7 @@ fn main() {
           return;
         }
         0x09 => word_box.borrow_mut().shuffle(), // HT
-        0x17 => word_box.borrow_mut().clear(true), // ETB (ctrl+bksp)
+        0x17 => word_box.borrow_mut().clear(), // ETB (ctrl+bksp)
         0x1B => {
           // ESC
 
@@ -241,29 +242,42 @@ fn main() {
 
             remain.remove(word_box.buf());
 
-            match match_boxes.get(word_box.buf()) {
+            let success = match match_boxes.get(word_box.buf()) {
               Some(b) => {
                 hl_match_boxes = Some(b);
                 word_box.set_bad(false);
+
+                let mut success = true;
 
                 for b in b {
                   let mut b_ref = b.borrow_mut();
 
                   if b_ref.revealed() {
                     b_ref.set_style(MatchBoxStyle::Highlight);
+                    success = false;
                   } else {
                     b_ref.set_revealed(true);
                     b_ref.set_style(MatchBoxStyle::Reveal);
                   }
                 }
+
+                success
               }
               None => {
                 let bad = word_box.buf().len() > 0;
                 word_box.set_bad(bad);
+                false
               }
-            }
+            };
 
-            word_box.clear(false);
+            if success {
+              word_box.set_auto_sort(false);
+              word_box.clear();
+            } else if word_box.auto_sort() {
+              word_box.render_cur();
+            } else {
+              word_box.clear();
+            }
           }
         }
         0x7F => word_box.borrow_mut().del_left(), // DEL (bksp)
@@ -272,7 +286,7 @@ fn main() {
         nc::KEY_LEFT => word_box.borrow_mut().left(),
         nc::KEY_RIGHT => word_box.borrow_mut().right(),
         nc::KEY_HOME => word_box.borrow_mut().home(),
-        nc::KEY_BACKSPACE => word_box.borrow_mut().clear(true), // (shift+bksp/ctrl+bksp)
+        nc::KEY_BACKSPACE => word_box.borrow_mut().clear(), // (shift+bksp/ctrl+bksp)
         nc::KEY_DC => word_box.borrow_mut().del_right(),
         nc::KEY_BTAB => {
           let mut word_box = word_box.borrow_mut();

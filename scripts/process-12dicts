@@ -48,6 +48,8 @@ list = Set.new([
       .tap{|c| puts "dropping #{word.inspect}" if c }
   end
 
+# TODO: attempt to dedup entries where one is just capitalized (e.g. Mgr and mgr)
+
 list = list.to_a.sort
 
 puts "Collected #{list.size} word(s)."

@@ -24,9 +24,9 @@ of controls for the game as it currently stands (assuming an xterm-like console)
 | `Ctrl+D`    | Quit the application. |
 | `Tab`       | Shuffle the remaining letters. |
 | `Ctrl+Bksp` | Clear the word box. |
-| `Esc`       | Pick a new word. |
+| `Esc`       | Forfeit the current level and pick a new word. |
 | `Enter`     | Submit your guess. |
-| `Shift+Tab` | Sort the remaining letters alphabetically. |
+| `Shift+Tab` | Toggle auto-sorting the remaining letters alphabetically. |
 
 ## `tools/gen-words`
 
