@@ -65,7 +65,7 @@ list = Set.new([
 
     no_vowels = stripped !~ /[aeiouy]/
 
-    next false if (no_vowels && stripped.size < 3)
+    next true if (no_vowels && stripped.size < 3)
       .tap{|c| diags << [:R_DROP, word] if c }
 
     catch(:stop) do
@@ -74,7 +74,11 @@ list = Set.new([
       throw(:stop, :N_WEIRD) if stripped =~ /(?<![aeiouy])(?:(?<![lmr])pt|cd)/
 
       throw(:stop, :N_CAPS) if word.split(/[\s+\p{P}]/).any?{|p| p.gsub(/[^\p{Lu}\p{Lt}]+/, "").size > 1 }
+
+      throw(:stop, :N_PROP) if word.split(/[\s+\p{P}]/).any?{|p| p =~ /\P{L}*[\p{Lu}\p{Lt}]\p{Ll}*\P{L}*/ }
     end.tap{|d| diags << [d, word] if d }
+
+    false
   end
 
 # TODO: attempt to dedup entries where one is just capitalized (e.g. Mgr and mgr)
