@@ -1,6 +1,6 @@
+use markov::Markov;
 use nc;
-use rand::{self, prelude::*};
-use std::cmp;
+use std::{cmp, collections::HashMap};
 use tui::prelude_internal::*;
 
 pub struct WordBox {
@@ -81,10 +81,10 @@ impl WordBox {
 
   fn del_empty(&mut self) {
     if self.auto_sort {
-      self.bad = false;
+      self.auto_sort = false;
       self.render();
     } else if self.bad {
-      self.auto_sort = false;
+      self.bad = false;
       self.render();
     }
   }
@@ -103,7 +103,6 @@ impl WordBox {
         self.render();
       }
     }
-
   }
 
   pub fn del_right(&mut self) {
@@ -119,7 +118,8 @@ impl WordBox {
   }
 
   pub fn clear(&mut self) {
-    if self.buf.is_empty() { // TODO: move this block elsewhere probably
+    if self.buf.is_empty() {
+      // TODO: move this block elsewhere probably
       self.del_empty();
     }
     self.ghost_buf.insert_str(0, &self.buf);
@@ -181,20 +181,36 @@ impl WordBox {
     self.move_to(pos);
   }
 
-  pub fn shuffle(&mut self) {
+  pub fn shuffle(&mut self, markov: &Markov<char>) {
+    use std::collections::hash_map::Entry::*;
+
     self.auto_sort = false;
 
-    let mut chars: Vec<_> = self.ghost_buf.chars().collect();
+    let mut remain: HashMap<char, usize> = HashMap::new();
 
-    self.ghost_buf.clear();
-
-    let mut i: usize = 0;
-
-    while !chars.is_empty() {
-      let j = rand::thread_rng().gen_range(0, chars.len());
-      self.ghost_buf.push(chars.remove(j));
-      i = i + 1;
+    for chr in self.ghost_buf.chars() {
+      match remain.entry(chr) {
+        Vacant(v) => {
+          v.insert(1);
+        }
+        Occupied(o) => {
+          let o = o.into_mut();
+          *o = *o + 1;
+        }
+      }
     }
+
+    // TODO: keep an eye on this, it doesn't seem correct
+    self.ghost_buf = markov
+      .iter_counted(
+        markov
+          .rand_seed()
+          .filter(|c| self.ghost_buf.contains(**c))
+          .next()
+          .unwrap(),
+        remain,
+      )
+      .collect();
 
     self.render();
   }

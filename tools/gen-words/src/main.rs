@@ -65,7 +65,7 @@ fn count_chars(s: &str) -> CharCounts {
 
     match ret.entry(c) {
       Occupied(o) => {
-        let mut val = o.into_mut();
+        let val = o.into_mut();
         *val = *val + 1;
       }
       Vacant(v) => {

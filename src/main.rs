@@ -13,6 +13,7 @@ extern crate lazy_static;
 extern crate serde_derive;
 
 // TODO: move the models and schema modules into the word_list module
+mod markov;
 mod models;
 mod schema;
 mod tui;
@@ -21,6 +22,7 @@ mod word_list;
 use rand::prelude::*;
 use regex::Regex;
 use std::{
+  cmp,
   collections::{HashMap, HashSet},
   fs::File,
   io::{self, prelude::*},
@@ -50,7 +52,7 @@ fn count_chars(s: &str) -> HashMap<char, usize> {
         v.insert(1);
       }
       Occupied(o) => {
-        let mut val = o.into_mut();
+        let val = o.into_mut();
         *val = *val + 1;
       }
     }
@@ -112,6 +114,49 @@ fn main() {
       key = keys.remove(rand::thread_rng().gen_range(0, nkeys));
 
       words.get_set(&key)
+    };
+
+    let markov = {
+      let mut table = markov::analyze_corpus(set.iter().map(|s| s.chars()));
+      let chars: Vec<_> = table.keys().map(|c| *c).collect();
+
+      let pad = cmp::max(
+        1,
+        table
+          .values()
+          .flat_map(|t| t.values())
+          .fold(0, |s, c| s + c) / 40,
+      );
+
+      for tos in table.values_mut() {
+        for chr in &chars {
+          use std::collections::hash_map::Entry::*;
+
+          match tos.entry(*chr) {
+            Vacant(v) => {
+              v.insert(pad);
+            }
+            Occupied(o) => {
+              let o = o.into_mut();
+              *o = *o + pad;
+            }
+          }
+        }
+      }
+
+      {
+        let mut file = File::create("freq.log").unwrap();
+
+        writeln!(file, "table:").unwrap();
+
+        for (from, tos) in &table {
+          for (to, freq) in tos {
+            writeln!(file, "  {} -> {}: {}", from, to, freq).unwrap();
+          }
+        }
+      }
+
+      markov::Markov::new(table)
     };
 
     let mut remain: HashSet<&String> = set.iter().collect();
@@ -189,8 +234,8 @@ fn main() {
           nc::endwin(); // TODO: break out of the outer loop instead
           return;
         }
-        0x09 => word_box.borrow_mut().shuffle(), // HT
-        0x17 => word_box.borrow_mut().clear(), // ETB (ctrl+bksp)
+        0x09 => word_box.borrow_mut().shuffle(&markov), // HT
+        0x17 => word_box.borrow_mut().clear(),          // ETB (ctrl+bksp)
         0x1B => {
           // ESC
 
