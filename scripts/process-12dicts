@@ -22,7 +22,21 @@ ThreeOf6All = File.join(Source, 'International', '3of6all.txt')
 ThreeOf6Game = File.join(Source, 'International', '3of6game.txt')
 Neol2016 = File.join(Source, 'Special', 'neol2016.txt')
 
-Reject = Set.new(%w[b c d e f g h i j k l m n o p q r s t u v w x y z])
+Reject = Set.new(%w[
+  b c d e f g h i j k l m n o p q r s t u v w x y z
+  BEd BEds
+  DPhil DPhils
+  KO'd
+  McCoy
+  OD'd OK'd
+  pay-TV
+  Pte Pty
+  VoIP
+])
+
+unrejected = Reject.clone
+
+diags = []
 
 list = Set.new([
   *lines(TwoOf12),
@@ -36,16 +50,31 @@ list = Set.new([
     .map{|w| cleanup(w) }
     .reject{|w| w.empty? }
 ].lazy
-  .map{|w| cleanup(w).gsub(/[%!^&$+;:>]+$/, '') }
-  .reject{|w| Reject.include?(w) || (w =~ /^(?:[^\p{Ll}]*|[^\p{Ll}]{2,}s)$|^-|[-.]$/).tap{|c| puts "rejecting #{w.inspect}" if c } }) # Note: .$ catches some acronyms as well, but this isn't really an issue
+  .map{|w| cleanup(w).gsub(/[%!^&$+;:>]+$/, '') })
+  .reject do |word|
+    word.split(/\s+/).any? do |w|
+      Reject.include?(w).tap{|c| unrejected.delete(w) if c } ||
+        (w =~ /^(?:[^\p{Ll}]{2,}(?:s|ed|ing)?)$|^-|[-.]$/).tap{|c| diags << [:R_REJECT, word] if c }
+    end
+  end # Note: .$ catches some acronyms as well, but this isn't really an issue
   .reject do |word|
     stripped = word.gsub(/\W+/, "")
     stripped.downcase!
 
     next true if stripped.empty?
 
-    (stripped !~ /[aeiouy]/ && stripped.size < 3)
-      .tap{|c| puts "dropping #{word.inspect}" if c }
+    no_vowels = stripped !~ /[aeiouy]/
+
+    next false if (no_vowels && stripped.size < 3)
+      .tap{|c| diags << [:R_DROP, word] if c }
+
+    catch(:stop) do
+      throw(:stop, :N_NOVOWEL) if no_vowels
+
+      throw(:stop, :N_WEIRD) if stripped =~ /(?<![aeiouy])(?:(?<![lmr])pt|cd)/
+
+      throw(:stop, :N_CAPS) if word.split(/[\s+\p{P}]/).any?{|p| p.gsub(/[^\p{Lu}\p{Lt}]+/, "").size > 1 }
+    end.tap{|d| diags << [d, word] if d }
   end
 
 # TODO: attempt to dedup entries where one is just capitalized (e.g. Mgr and mgr)
@@ -60,3 +89,7 @@ File.open('etc/wordlist.txt', 'w') do |file|
     file << word << "\n"
   end
 end
+
+unrejected.to_a.sort.each{|u| puts "UNREJECTED #{u}" }
+
+diags.sort.each{|d| puts "%s %s" % d }
