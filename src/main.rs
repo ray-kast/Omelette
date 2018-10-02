@@ -117,16 +117,15 @@ fn main() {
     };
 
     let markov = {
-      let mut table = markov::analyze_corpus(set.iter().map(|s| s.chars()));
+      let mut table = markov::analyze_corpus(
+        set.iter().map(|s| ((s.len() as f64).powf(1.5), s.chars())),
+      );
       let chars: Vec<_> = table.keys().map(|c| *c).collect();
 
-      let pad = cmp::max(
-        1,
-        table
-          .values()
-          .flat_map(|t| t.values())
-          .fold(0, |s, c| s + c) / 40,
-      );
+      let pad = table
+        .values()
+        .flat_map(|t| t.values())
+        .fold(0.0, |s, c| s + c) / 100.0;
 
       for tos in table.values_mut() {
         for chr in &chars {

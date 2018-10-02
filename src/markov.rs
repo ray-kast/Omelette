@@ -1,17 +1,29 @@
 use rand::{self, prelude::*};
 use std::{
+  cmp::Ordering,
   collections::{BTreeMap, Bound, HashMap},
   hash::Hash,
 };
 
-type FreqTable<T> = HashMap<T, HashMap<T, usize>>;
+type FreqTable<T> = HashMap<T, HashMap<T, f64>>;
+
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+struct TotalDouble(f64);
+
+impl Eq for TotalDouble {}
+
+impl Ord for TotalDouble {
+  fn cmp(&self, other: &Self) -> Ordering {
+    self.partial_cmp(other).unwrap() // If one of the values is NaN, that's a problem anyway
+  }
+}
 
 pub struct Markov<T>
 where
   T: Eq,
   T: Hash,
 {
-  table: HashMap<T, (usize, BTreeMap<usize, T>)>,
+  table: HashMap<T, BTreeMap<TotalDouble, T>>,
 }
 
 impl<T> Markov<T>
@@ -23,16 +35,22 @@ where
     let mut table = HashMap::new();
 
     for (from, tos) in freq {
-      let mut fold = 0;
+      let mut fold = 0.0;
 
       let mut new_tos = BTreeMap::new();
 
       for (to, freq) in tos {
-        new_tos.insert(fold, to);
+        new_tos.insert(TotalDouble(fold), to);
         fold = fold + freq
       }
 
-      table.insert(from, (fold, new_tos));
+      table.insert(
+        from,
+        new_tos
+          .into_iter()
+          .map(|(k, v)| (TotalDouble(k.0 as f64 / fold), v))
+          .collect(),
+      );
     }
 
     Self { table }
@@ -108,11 +126,11 @@ where
         .chain
         .table
         .get(state)
-        .and_then(|(max, ref map)| {
-          let i = rand::thread_rng().gen_range(0, *max);
+        .and_then(|map| {
+          let f = TotalDouble(rand::thread_rng().gen_range(0.0, 1.0));
 
           map
-            .range((Bound::Unbounded, Bound::Excluded(i)))
+            .range((Bound::Unbounded, Bound::Excluded(f)))
             .next_back()
         })
         .map(|(_, v)| v);
@@ -150,11 +168,11 @@ where
       // TODO: this approach is really dumb and susceptible to hanging; it should
       //       probably be fixed by constructing a temporary state table
       self.state = if self.nremain > 0 {
-        self.chain.table.get(state).map(|(max, ref map)| loop {
-          let i = rand::thread_rng().gen_range(0, *max);
+        self.chain.table.get(state).map(|map| loop {
+          let f = TotalDouble(rand::thread_rng().gen_range(0.0, 1.0));
 
           let val = map
-            .range((Bound::Unbounded, Bound::Excluded(i)))
+            .range((Bound::Unbounded, Bound::Excluded(f)))
             .next_back();
 
           if let Some((_, val)) = val {
@@ -202,7 +220,7 @@ where
 
 pub fn analyze_corpus<I, J, T>(i: I) -> FreqTable<T>
 where
-  I: IntoIterator<Item = J>,
+  I: IntoIterator<Item = (f64, J)>,
   J: IntoIterator<Item = T>,
   T: Eq,
   T: Hash,
@@ -210,7 +228,7 @@ where
 {
   let mut table = FreqTable::new();
 
-  for j in i {
+  for (weight, j) in i {
     let mut prev = None;
 
     for el in j {
@@ -223,11 +241,11 @@ where
         }.entry(el.clone())
         {
           Vacant(v) => {
-            v.insert(1);
+            v.insert(weight);
           }
           Occupied(o) => {
             let o = o.into_mut();
-            *o = *o + 1;
+            *o = *o + weight;
           }
         }
       }
