@@ -117,20 +117,25 @@ fn main() {
     };
 
     let markov = {
+      use std::collections::hash_map::Entry::*;
+
       let mut table = markov::analyze_corpus(
         set.iter().map(|s| ((s.len() as f64).powf(1.5), s.chars())),
       );
-      let chars: Vec<_> = table.keys().map(|c| *c).collect();
+      let chars: HashSet<_> = set.iter().flat_map(|s| s.chars()).collect();
 
       let pad = table
         .values()
         .flat_map(|t| t.values())
         .fold(0.0, |s, c| s + c) / 100.0;
 
-      for tos in table.values_mut() {
-        for chr in &chars {
-          use std::collections::hash_map::Entry::*;
+      for chr in &chars {
+        let tos = match table.entry(*chr) {
+          Vacant(v) => v.insert(HashMap::new()),
+          Occupied(o) => o.into_mut(),
+        };
 
+        for chr in &chars {
           match tos.entry(*chr) {
             Vacant(v) => {
               v.insert(pad);
@@ -143,19 +148,27 @@ fn main() {
         }
       }
 
-      {
-        let mut file = File::create("freq.log").unwrap();
+      let mut file = File::create("freq.log").unwrap();
 
-        writeln!(file, "table:").unwrap();
+      writeln!(file, "table:").unwrap();
 
-        for (from, tos) in &table {
-          for (to, freq) in tos {
-            writeln!(file, "  {} -> {}: {}", from, to, freq).unwrap();
-          }
+      for (from, tos) in &table {
+        for (to, freq) in tos {
+          writeln!(file, "  {} -> {}: {}", from, to, freq).unwrap();
         }
       }
 
-      markov::Markov::new(table)
+      let markov = markov::Markov::new(table);
+
+      writeln!(file, "samples:").unwrap();
+
+      for s in markov.rand_seed().take(20) {
+        let line: String = markov.iter(s).take(40).collect();
+
+        writeln!(file, "{}", line).unwrap();
+      }
+
+      markov
     };
 
     let mut remain: HashSet<&String> = set.iter().collect();

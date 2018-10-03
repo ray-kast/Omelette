@@ -122,18 +122,15 @@ where
     let state = self.state;
 
     if let Some(state) = state {
-      self.state = self
-        .chain
-        .table
-        .get(state)
-        .and_then(|map| {
-          let f = TotalDouble(rand::thread_rng().gen_range(0.0, 1.0));
+      self.state = self.chain.table.get(state).map(|map| {
+        let f = TotalDouble(rand::thread_rng().gen_range(0.0, 1.0));
 
-          map
-            .range((Bound::Unbounded, Bound::Excluded(f)))
-            .next_back()
-        })
-        .map(|(_, v)| v);
+        map
+          .range((Bound::Unbounded, Bound::Included(f)))
+          .next_back()
+          .unwrap()
+          .1
+      });
     }
 
     state
@@ -171,17 +168,16 @@ where
         self.chain.table.get(state).map(|map| loop {
           let f = TotalDouble(rand::thread_rng().gen_range(0.0, 1.0));
 
-          let val = map
-            .range((Bound::Unbounded, Bound::Excluded(f)))
-            .next_back();
+          let (_, val) = map
+            .range((Bound::Unbounded, Bound::Included(f)))
+            .next_back()
+            .unwrap();
 
-          if let Some((_, val)) = val {
-            if let Some(n) = self.remain.get_mut(val) {
-              if *n > 0 {
-                *n = *n - 1;
-                self.nremain = self.nremain - 1;
-                break val;
-              }
+          if let Some(n) = self.remain.get_mut(val) {
+            if *n > 0 {
+              *n = *n - 1;
+              self.nremain = self.nremain - 1;
+              break val;
             }
           }
         })
