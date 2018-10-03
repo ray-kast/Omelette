@@ -5,7 +5,13 @@ usable by the game.
 
 ## Usage
 
-Command-line usage:
+`gen-words` requires `diesel_cli` to be installed - if you don't have it, you
+can use the following command to install it with SQLite support only:<br>
+`cargo install diesel_cli --no-default-features --features sqlite`<br>
+If you have problems installing `diesel_cli`, you can refer to Diesel's
+[getting started guide](http://diesel.rs/guides/getting-started/).
+
+Command-line usage:<br>
 `./run.sh <wordlist>`
 
 `wordlist` is the name of a plaintext wordlist to read from.  It must contain
@@ -18,4 +24,4 @@ A plaintext wordlist can be generated from the data contained in `etc/12dicts`
 and `etc/alt12dicts` by using the script `process-12dicts` in the `scripts`
 folder:
 
-`scripts/process-12dicts && ./run.sh etc/wordlist.txt`
+`scripts/process-12dicts >p12d.log && ./run.sh etc/wordlist.txt`
