@@ -1,16 +1,11 @@
-// TODO: I could probably remove serde altogether
 extern crate ncurses as nc;
 extern crate rand;
 extern crate regex;
-extern crate serde;
-extern crate serde_json;
 
 #[macro_use]
 extern crate diesel;
 #[macro_use]
 extern crate lazy_static;
-#[macro_use]
-extern crate serde_derive;
 
 // TODO: move the models and schema modules into the word_list module
 mod markov;
@@ -20,9 +15,7 @@ mod tui;
 mod word_list;
 
 use rand::prelude::*;
-use regex::Regex;
 use std::{
-  cmp,
   collections::{HashMap, HashSet},
   fs::File,
   io::{self, prelude::*},
@@ -39,26 +32,6 @@ fn dump_line(win: nc::WINDOW, y: i32, line: &str) {
   nc::wclrtoeol(win);
   nc::mvwaddstr(win, y, 0, line);
   nc::wrefresh(win);
-}
-
-fn count_chars(s: &str) -> HashMap<char, usize> {
-  let mut ret = HashMap::new();
-
-  for c in s.chars() {
-    use std::collections::hash_map::Entry::*;
-
-    match ret.entry(c) {
-      Vacant(v) => {
-        v.insert(1);
-      }
-      Occupied(o) => {
-        let val = o.into_mut();
-        *val = *val + 1;
-      }
-    }
-  }
-
-  ret
 }
 
 fn main() {

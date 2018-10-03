@@ -69,7 +69,7 @@ impl ElementCore for MatchBox {
     &mut self.coredata
   }
 
-  fn measure_impl(&mut self, space: MeasureSize) -> MeasureSize {
+  fn measure_impl(&mut self, _: MeasureSize) -> MeasureSize {
     MeasureSize {
       w: Some(self.displayed_str().len() as i32),
       h: Some(1),
