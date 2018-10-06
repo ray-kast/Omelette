@@ -105,7 +105,7 @@ struct Stage2<'a> {
   used_words: HashSet<Normalized>,
 }
 
-fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
+fn stage_1(file: &str, blacklist_file: &str) -> Result<Stage1> {
   let words: BTreeSet<_> = {
     let file = BufReader::new(File::open(file)?);
 
@@ -117,8 +117,8 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
 
   println!("read {} word(s)", words.len());
 
-  let profanity: HashSet<_> = {
-    let file = BufReader::new(File::open(profanity_file)?);
+  let blacklist: HashSet<_> = {
+    let file = BufReader::new(File::open(blacklist_file)?);
 
     lazy_static! {
       static ref COMMENT_RE: Regex = Regex::new(r"^\s*#").unwrap();
@@ -137,7 +137,7 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
       .collect()
   };
 
-  println!("read {} profane word(s)", profanity.len());
+  println!("read {} blacklisted word(s)", blacklist.len());
 
   let mut permutations: HashMap<Depermuted, HashSet<Normalized>> =
     HashMap::new();
@@ -147,7 +147,7 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
 
   let mut forms: HashMap<Normalized, Vec<WordlistForm>> = HashMap::new();
 
-  let mut used_profanity: BTreeSet<Normalized> = BTreeSet::new();
+  let mut used_blacklist: BTreeSet<Normalized> = BTreeSet::new();
 
   lazy_static! {
     static ref REJECT_RE: Regex = Regex::new(r"[\d\s]").unwrap();
@@ -156,7 +156,7 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
     static ref BLANK_CAPS_RE: Regex = Regex::new(r"[\p{Lu}\p{Lt}]").unwrap();
   }
 
-  let profanity: HashSet<_> = profanity
+  let blacklist: HashSet<_> = blacklist
     .iter()
     .map(|w| {
       let lower = w.to_lowercase();
@@ -175,8 +175,8 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
     let normalized =
       Normalized(NORMAL_RE.replace_all(&normalized, "").into_owned());
 
-    if profanity.contains(&normalized) {
-      used_profanity.insert(normalized.clone());
+    if blacklist.contains(&normalized) {
+      used_blacklist.insert(normalized.clone());
       continue;
     }
 
@@ -224,11 +224,11 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
   println!("{} valid subword(s)", valid_subwords.len());
 
   {
-    let used = used_profanity;
+    let used = used_blacklist;
     let unused: BTreeSet<_> =
-      profanity.iter().filter(|w| !used.contains(w)).collect();
+      blacklist.iter().filter(|w| !used.contains(w)).collect();
 
-    println!("performing extra profanity checks...");
+    println!("performing extra blacklist checks...");
 
     let mut maybe: BTreeMap<&Normalized, BTreeSet<&String>> = BTreeMap::new();
 
@@ -237,7 +237,7 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
         return None;
       }
 
-      if let Some(p) = profanity.iter().find(|p| n.0.contains(&p.0)) {
+      if let Some(p) = blacklist.iter().find(|p| n.0.contains(&p.0)) {
         Some((p, fs))
       } else {
         None
@@ -256,13 +256,13 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
     }
 
     println!(
-      "{} profanity(ies) used, {} unused",
+      "{} blacklisted used, {} unused",
       used.len(),
       unused.len()
     );
 
     {
-      let mut file = File::create("usprof.log")?;
+      let mut file = File::create("usblk.log")?;
 
       for word in used {
         writeln!(file, "{}", word.0)?;
@@ -270,7 +270,7 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
     }
 
     {
-      let mut file = File::create("unprof.log")?;
+      let mut file = File::create("unblk.log")?;
 
       for word in unused {
         writeln!(file, "{}", word.0)?;
@@ -278,10 +278,10 @@ fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
     }
 
     {
-      let mut file = File::create("maybeprof.log")?;
+      let mut file = File::create("maybeblk.log")?;
 
-      for (prof, words) in maybe {
-        writeln!(file, "{}: ({})", prof.0, words.len())?;
+      for (blk, words) in maybe {
+        writeln!(file, "{}: ({})", blk.0, words.len())?;
 
         for word in words {
           writeln!(file, "  {}", word)?;
@@ -410,7 +410,7 @@ fn run() -> Result<()> {
 
   let file: String = parse_arg(&mut args, "an input filename")?;
 
-  let s1 = Arc::new(stage_1(&file, "etc/profanity.txt")?);
+  let s1 = Arc::new(stage_1(&file, "etc/blacklist.txt")?);
 
   let s2 = stage_2(&s1)?;
 
