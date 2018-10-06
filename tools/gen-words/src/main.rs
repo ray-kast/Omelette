@@ -480,8 +480,9 @@ fn run() -> Result<()> {
     dotenv().ok();
 
     let url = env::var("DATABASE_URL")?;
-
     let conn = SqliteConnection::establish(&url)?;
+
+    let start = Instant::now();
 
     {
       use schema::{
@@ -508,6 +509,15 @@ fn run() -> Result<()> {
         .values(&insert_set_keys)
         .execute(&conn)?;
     }
+
+    let end = Instant::now();
+    let time = end - start;
+
+    println!(
+      "committed in {}.{:02}s",
+      time.as_secs(),
+      time.subsec_millis() / 10
+    );
   }
 
   Ok(())
