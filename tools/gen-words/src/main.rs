@@ -14,7 +14,7 @@ mod thread_pool;
 
 use regex::Regex;
 use std::{
-  collections::{HashMap, HashSet, VecDeque},
+  collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
   env,
   fs::File,
   io::{self, prelude::*, BufReader},
@@ -83,11 +83,12 @@ fn is_subseq(count: &CharCounts, of: &CharCounts) -> bool {
 
 static MIN_VALID_LEN: usize = 3;
 static MIN_LEN: usize = 4;
-static MAX_LEN: usize = 8;
+static MAX_LEN: usize = 10;
+static MAX_LEN_DIFFERENCE: usize = 5;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 struct Normalized(String); // Used as a string with nonword characters stripped
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 struct Depermuted(String); // Used as a Normalized with its characters sorted
 
 struct Stage1 {
@@ -104,21 +105,39 @@ struct Stage2<'a> {
   used_words: HashSet<Normalized>,
 }
 
-fn stage_1(file: &str) -> Result<Stage1> {
-  let mut words = Vec::new();
+fn stage_1(file: &str, profanity_file: &str) -> Result<Stage1> {
+  let words: BTreeSet<_> = {
+    let file = BufReader::new(File::open(file)?);
 
-  {
-    let file = File::open(file)?;
-    let file = BufReader::new(&file);
-
-    for line in file.lines() {
-      let line = line?;
-
-      words.push(line.trim().to_string());
-    }
-  }
+    file
+      .lines()
+      .map(|l| l.unwrap().trim().to_string())
+      .collect()
+  };
 
   println!("read {} word(s)", words.len());
+
+  let profanity: HashSet<_> = {
+    let file = BufReader::new(File::open(profanity_file)?);
+
+    lazy_static! {
+      static ref COMMENT_RE: Regex = Regex::new(r"^\s*#").unwrap();
+    }
+
+    file
+      .lines()
+      .map(|l| l.unwrap())
+      .filter_map(|l| {
+        if COMMENT_RE.is_match(&l) {
+          None
+        } else {
+          Some(l.trim().to_string())
+        }
+      })
+      .collect()
+  };
+
+  println!("read {} profane word(s)", profanity.len());
 
   let mut permutations: HashMap<Depermuted, HashSet<Normalized>> =
     HashMap::new();
@@ -128,12 +147,22 @@ fn stage_1(file: &str) -> Result<Stage1> {
 
   let mut forms: HashMap<Normalized, Vec<WordlistForm>> = HashMap::new();
 
+  let mut used_profanity: BTreeSet<Normalized> = BTreeSet::new();
+
   lazy_static! {
     static ref REJECT_RE: Regex = Regex::new(r"[\d\s]").unwrap();
     static ref NORMAL_RE: Regex = Regex::new(r"\W+").unwrap();
     static ref BLANK_RE: Regex = Regex::new(r"[\w--\p{Lu}\p{Lt}]").unwrap();
     static ref BLANK_CAPS_RE: Regex = Regex::new(r"[\p{Lu}\p{Lt}]").unwrap();
   }
+
+  let profanity: HashSet<_> = profanity
+    .iter()
+    .map(|w| {
+      let lower = w.to_lowercase();
+      Normalized(NORMAL_RE.replace_all(&lower, "").into_owned())
+    })
+    .collect();
 
   for word in words {
     use std::collections::hash_map::Entry::*;
@@ -145,6 +174,11 @@ fn stage_1(file: &str) -> Result<Stage1> {
     let normalized = word.to_lowercase();
     let normalized =
       Normalized(NORMAL_RE.replace_all(&normalized, "").into_owned());
+
+    if profanity.contains(&normalized) {
+      used_profanity.insert(normalized.clone());
+      continue;
+    }
 
     let blank = BLANK_RE.replace_all(&word, "_");
     let blank = BLANK_CAPS_RE.replace_all(&blank, "_").into_owned(); // TODO: highlight this somehow?
@@ -189,6 +223,73 @@ fn stage_1(file: &str) -> Result<Stage1> {
   println!("{} depermuted", permutations.len());
   println!("{} valid subword(s)", valid_subwords.len());
 
+  {
+    let used = used_profanity;
+    let unused: BTreeSet<_> =
+      profanity.iter().filter(|w| !used.contains(w)).collect();
+
+    println!("performing extra profanity checks...");
+
+    let mut maybe: BTreeMap<&Normalized, BTreeSet<&String>> = BTreeMap::new();
+
+    for (p, fs) in forms.iter().filter_map(|(n, fs)| {
+      if used.contains(n) {
+        return None;
+      }
+
+      if let Some(p) = profanity.iter().find(|p| n.0.contains(&p.0)) {
+        Some((p, fs))
+      } else {
+        None
+      }
+    }) {
+      use std::collections::btree_map::Entry::*;
+
+      let mut set = match maybe.entry(p) {
+        Vacant(v) => v.insert(BTreeSet::new()),
+        Occupied(o) => o.into_mut(),
+      };
+
+      for f in fs {
+        set.insert(&f.full);
+      }
+    }
+
+    println!(
+      "{} profanity(ies) used, {} unused",
+      used.len(),
+      unused.len()
+    );
+
+    {
+      let mut file = File::create("usprof.log")?;
+
+      for word in used {
+        writeln!(file, "{}", word.0)?;
+      }
+    }
+
+    {
+      let mut file = File::create("unprof.log")?;
+
+      for word in unused {
+        writeln!(file, "{}", word.0)?;
+      }
+    }
+
+    {
+      let mut file = File::create("maybeprof.log")?;
+
+      for (prof, words) in maybe {
+        writeln!(file, "{}: ({})", prof.0, words.len())?;
+
+        for word in words {
+          writeln!(file, "  {}", word)?;
+        }
+      }
+    }
+  }
+
   Ok(Stage1 {
     permutations,
     counts,
@@ -230,14 +331,16 @@ fn stage_2<'a>(s1: &'a Arc<Stage1>) -> Result<Stage2<'a>> {
       }
 
       let mut list: Vec<_> = s1
-          .valid_subwords
-          .iter()
-          .filter(|deperm2| {
-            deperm2.0.len() <= depermuted.0.len()
-              && is_subseq(&s1.counts[*deperm2], &count)
-          })
-          .flat_map(|d| s1.permutations[d].clone()) // TODO: can I go back to borrowing this?
-          .collect();
+        .valid_subwords
+        .iter()
+        .filter(|deperm2| {
+          deperm2.0.len() <= depermuted.0.len()
+            && (depermuted.0.len() < MAX_LEN_DIFFERENCE
+              || deperm2.0.len() >= depermuted.0.len() - MAX_LEN_DIFFERENCE)
+            && is_subseq(&s1.counts[*deperm2], &count)
+        })
+        .flat_map(|d| s1.permutations[d].clone()) // TODO: can I go back to borrowing this?
+        .collect();
 
       list.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then(a.0.cmp(&b.0)));
 
@@ -307,7 +410,7 @@ fn run() -> Result<()> {
 
   let file: String = parse_arg(&mut args, "an input filename")?;
 
-  let s1 = Arc::new(stage_1(&file)?);
+  let s1 = Arc::new(stage_1(&file, "etc/profanity.txt")?);
 
   let s2 = stage_2(&s1)?;
 
