@@ -128,7 +128,7 @@ where
 
             {
               let mut listings = listings.lock().unwrap();
-              links = listings.into_iter().flat_map(|l| l.children).collect();
+              links = listings.drain(0..).flat_map(|l| l.children).collect();
             }
 
             writeln!(io::stderr(), "retrieving comments...").unwrap();

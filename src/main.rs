@@ -43,7 +43,7 @@ fn main() {
 
   let mut len: Option<usize> = None;
 
-  loop {
+  'main: loop {
     let key;
     let set = {
       let mut keys = loop {
@@ -93,7 +93,7 @@ fn main() {
       use std::collections::hash_map::Entry::*;
 
       let mut table = markov::analyze_corpus(
-        set.iter().map(|s| ((s.len() as f64).powf(1.5), s.chars())),
+        set.iter().map(|s| ((s.len() as f64).powf(3.4), s.chars())),
       );
       let chars: HashSet<_> = set.iter().flat_map(|s| s.chars()).collect();
 
@@ -214,11 +214,7 @@ fn main() {
       // TODO: handle modifier keys better
       // TODO: up and down should be history controls, not text editing controls
       match nc::wgetch(win) {
-        0x04 => {
-          // EOT
-          nc::endwin(); // TODO: break out of the outer loop instead
-          return;
-        }
+        0x04 => break 'main,
         0x09 => word_box.borrow_mut().shuffle(&markov), // HT
         0x17 => word_box.borrow_mut().clear(),          // ETB (ctrl+bksp)
         0x1B => {
@@ -246,11 +242,7 @@ fn main() {
           word_box.borrow_mut().render_cur();
 
           match nc::wgetch(win) {
-            0x04 => {
-              // EOT
-              nc::endwin(); // TODO: break out of the outer loop instead
-              return;
-            }
+            0x04 => break 'main,
             _ => {}
           }
 
@@ -350,4 +342,6 @@ fn main() {
 
     nc::endwin();
   }
+
+  nc::endwin();
 }

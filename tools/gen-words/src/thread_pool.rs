@@ -29,7 +29,6 @@ enum WorkerMessage {
 
 use self::{SchedMessage as SM, WorkerMessage as WM};
 
-// TODO: is the 'static necessary, or can it be parameterized?
 impl<T> ThreadPool<T>
 where
   T: Send + 'static,

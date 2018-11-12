@@ -9,11 +9,6 @@ words.
 before running it for the first time, you must generate one.  See [here](tools/gen-words/README.md)
 for more details.
 
-Fair warning — at the time of writing this readme, ***the wordlist IS NOT
-censored***.  I have plans to allow blacklisting words, but I have not gotten
-there yet, so if you want to run the game as it currently is, play at your own
-risk.
-
 ## Controls
 
 Aside from basic text-editing controls for the word box, the following is a list
